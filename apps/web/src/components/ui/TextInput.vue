@@ -53,7 +53,7 @@ const describedBy = computed(
       :autocomplete="autocomplete"
       :aria-invalid="errorMessage ? 'true' : undefined"
       :aria-describedby="describedBy"
-      class="rounded-q-control border-q-border bg-q-surface px-q-3 py-q-2 font-body text-body text-q-text placeholder:text-q-text-secondary focus-visible:outline-3 focus-visible:outline-q-focus disabled:ring-q-text min-h-[var(--q-touch-target)] w-full border focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:ring-2 disabled:ring-inset"
+      class="rounded-q-control border-q-border bg-q-surface px-q-3 py-q-2 font-body text-body text-q-text placeholder:text-q-text-secondary focus-visible:outline-q-focus disabled:ring-q-text min-h-[var(--q-touch-target)] w-full border focus-visible:outline-3 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:ring-2 disabled:ring-inset"
       :class="{ 'border-q-error-border': errorMessage }"
     />
     <p
