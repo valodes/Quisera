@@ -13,6 +13,7 @@ export const user = sqliteTable(
   {
     id: text('id').primaryKey(),
     name: text('name').notNull(),
+    username: text('username'),
     email: text('email').notNull(),
     emailVerified: integer('emailVerified', { mode: 'boolean' })
       .notNull()
@@ -25,7 +26,10 @@ export const user = sqliteTable(
     banReason: text('banReason'),
     banExpires: integer('banExpires', { mode: 'timestamp_ms' }),
   },
-  (table) => [uniqueIndex('user_email_unique').on(table.email)],
+  (table) => [
+    uniqueIndex('user_email_unique').on(table.email),
+    uniqueIndex('user_username_unique').on(table.username),
+  ],
 )
 
 export const session = sqliteTable(
@@ -175,6 +179,7 @@ export const deliverySelection = sqliteTable(
     photoThumbnailUrl: text('photo_thumbnail_url'),
     totalMinutes: integer('total_minutes'),
     nutriScore: text('nutri_score'),
+    carbonScore: text('carbon_score'),
     ingredientsJson: text('ingredients_json').notNull().default('[]'),
     stepsJson: text('steps_json').notNull().default('[]'),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
@@ -366,6 +371,63 @@ export const recipeSyncState = sqliteTable('recipe_sync_state', {
   lastUpdated: integer('last_updated').notNull(),
 })
 
+export const household = sqliteTable('household', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
+export const householdMember = sqliteTable(
+  'household_member',
+  {
+    householdId: text('household_id')
+      .notNull()
+      .references(() => household.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    role: text('role', { enum: ['owner', 'member'] })
+      .notNull()
+      .default('member'),
+    joinedAt: integer('joined_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.householdId, table.userId] }),
+    uniqueIndex('household_member_user_unique').on(table.userId),
+    index('household_member_household_idx').on(table.householdId),
+  ],
+)
+
+export const householdInvitation = sqliteTable(
+  'household_invitation',
+  {
+    id: text('id').primaryKey(),
+    householdId: text('household_id')
+      .notNull()
+      .references(() => household.id, { onDelete: 'cascade' }),
+    email: text('email').notNull(),
+    invitedName: text('invited_name'),
+    tokenHash: text('token_hash').notNull(),
+    status: text('status', { enum: ['pending', 'accepted', 'revoked'] })
+      .notNull()
+      .default('pending'),
+    invitedByUserId: text('invited_by_user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+    acceptedAt: integer('accepted_at', { mode: 'timestamp_ms' }),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (table) => [
+    uniqueIndex('household_invitation_token_unique').on(table.tokenHash),
+    index('household_invitation_household_status_idx').on(
+      table.householdId,
+      table.status,
+    ),
+  ],
+)
+
 export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),
   accounts: many(account),
@@ -397,6 +459,9 @@ export const schema = {
   deliveryCycle,
   deliverySelection,
   plannedMeal,
+  household,
+  householdMember,
+  householdInvitation,
   userRelations,
   sessionRelations,
   accountRelations,
