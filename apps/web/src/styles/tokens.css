@@ -10,6 +10,9 @@
   --q-shoot: #daf097;
   --q-coral: #f08262;
   --q-tomato: #e74d43;
+  --q-sidebar-bg: var(--q-forest);
+  --q-sidebar-text: var(--q-peach);
+  --q-board-bg: var(--q-leaf);
 
   --q-canvas: var(--q-sage);
   --q-surface: var(--q-peach);
@@ -88,6 +91,81 @@
   --input: var(--q-border);
   --ring: var(--q-focus);
   --radius: var(--q-radius-control);
+}
+
+:root[data-theme='catppuccin'] {
+  color-scheme: light;
+  --q-forest: #2f3246;
+  --q-terracotta: #c4364e;
+  --q-leaf: #555873;
+  --q-sage: #e6e9ef;
+  --q-peach: #eff1f5;
+  --q-shoot: #d9d2f8;
+  --q-coral: #f5c2b4;
+  --q-tomato: #d20f39;
+  --q-sidebar-bg: #2f3246;
+  --q-sidebar-text: #eff1f5;
+  --q-board-bg: #555873;
+}
+
+:root[data-theme='moccachino'] {
+  color-scheme: light;
+  --q-forest: #3b2314;
+  --q-terracotta: #a64b2a;
+  --q-leaf: #6e4730;
+  --q-sage: #e8ddd1;
+  --q-peach: #f7f1e9;
+  --q-shoot: #e8c9a1;
+  --q-coral: #dfa684;
+  --q-tomato: #c8432b;
+  --q-sidebar-bg: #3b2314;
+  --q-sidebar-text: #f7f1e9;
+  --q-board-bg: #6e4730;
+}
+
+:root[data-theme='sakura'] {
+  color-scheme: light;
+  --q-forest: #3d1a2b;
+  --q-terracotta: #b83b5e;
+  --q-leaf: #7d3b59;
+  --q-sage: #f5dce4;
+  --q-peach: #fdf2f6;
+  --q-shoot: #e6e8b8;
+  --q-coral: #f4a7be;
+  --q-tomato: #c93356;
+  --q-sidebar-bg: #3d1a2b;
+  --q-sidebar-text: #fdf2f6;
+  --q-board-bg: #7d3b59;
+}
+
+:root[data-theme='nocturne'] {
+  color-scheme: dark;
+  --q-forest: #e6ecff;
+  --q-terracotta: #f38ba8;
+  --q-leaf: #9aa8d6;
+  --q-sage: #181825;
+  --q-peach: #242538;
+  --q-shoot: #2f4538;
+  --q-coral: #5a3348;
+  --q-tomato: #f38ba8;
+  --q-sidebar-bg: #11111b;
+  --q-sidebar-text: #e6ecff;
+  --q-board-bg: #11111b;
+}
+
+:root[data-theme='foret-nuit'] {
+  color-scheme: dark;
+  --q-forest: #e8f3e6;
+  --q-terracotta: #f08262;
+  --q-leaf: #8cc4a3;
+  --q-sage: #101e18;
+  --q-peach: #192d24;
+  --q-shoot: #2d4a2b;
+  --q-coral: #633526;
+  --q-tomato: #f57b6e;
+  --q-sidebar-bg: #0a1410;
+  --q-sidebar-text: #e8f3e6;
+  --q-board-bg: #0a1410;
 }
 
 @theme {

@@ -1,0 +1,213 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR" || exit 1
+
+SUDO=''
+if [[ "$(id -n -G | grep -w docker)" == "" ]]; then
+  SUDO='sudo -E '
+fi
+
+DOCKER_COMMAND="${SUDO}docker compose -f ${SCRIPT_DIR}/compose.yaml --project-directory=${SCRIPT_DIR}"
+
+EnsureEnv() {
+  if [[ ! -f "${SCRIPT_DIR}/.env" && -f "${SCRIPT_DIR}/.env.example" ]]; then
+    cp "${SCRIPT_DIR}/.env.example" "${SCRIPT_DIR}/.env"
+    local secret
+    if command -v openssl >/dev/null 2>&1; then
+      secret="$(openssl rand -hex 32)"
+    else
+      secret="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+    fi
+    sed -i "s|^BETTER_AUTH_SECRET=$|BETTER_AUTH_SECRET=${secret}|" "${SCRIPT_DIR}/.env"
+    echo "Fichier .env créé depuis .env.example avec un BETTER_AUTH_SECRET généré."
+  fi
+}
+
+RunInDev() {
+  EnsureEnv
+  if [[ "$($DOCKER_COMMAND ps -q dev 2>/dev/null)" != '' ]]; then
+    $DOCKER_COMMAND exec dev "$@"
+  else
+    $DOCKER_COMMAND run --rm dev "$@"
+  fi
+}
+
+############################################################
+# Help                                                     #
+############################################################
+Help() {
+  echo
+  echo "Script pour gérer l'environnement Docker de développement Quisera."
+  echo
+  echo "Syntaxe: ./$(basename "$0") [-h|-r|-b|-n|-l|-k|--ps|--migrate|--test|--check]"
+  echo
+  echo "Par défaut (sans options), démarre le container de développement et suit les logs."
+  echo
+  echo "Options:"
+  echo
+  echo "-h        Affiche cette aide."
+  echo "-r        Supprime les containers et volumes node_modules, rebuilde l'image dev puis redémarre."
+  echo "          On peut aussi reset un seul service en spécifiant son nom (par exemple -rdev)."
+  echo "-b        Redémarre le container dev (relance Vite et l'API)."
+  echo "-n        Entre dans le bash du container dev (pour les commandes node / pnpm)."
+  echo "-l        Affiche les logs du container dev en mode \"follow\"."
+  echo "-k        Tue tous les containers démarrés sur le poste (de tous les projets)."
+  echo
+  echo "--ps      Affiche la liste des containers du projet."
+  echo "--migrate Applique les migrations SQLite (@quisera/api)."
+  echo "--test    Lance les tests unitaires (pnpm test:unit)."
+  echo "--check   Lance typecheck, lint et format:check."
+  echo
+}
+
+############################################################
+# Start                                                    #
+############################################################
+Start() {
+  EnsureEnv
+  $DOCKER_COMMAND up -d --remove-orphans dev
+  Logs
+}
+
+############################################################
+# Logs                                                     #
+############################################################
+Logs() {
+  EnsureEnv
+  $DOCKER_COMMAND logs -f dev
+}
+
+############################################################
+# Reset                                                    #
+############################################################
+Reset() {
+  EnsureEnv
+  local service="${1:-}"
+
+  if [[ "$service" != "" ]]; then
+    echo
+    echo "Reset de [[ $service ]] uniquement."
+    echo
+    $DOCKER_COMMAND kill "$service"
+    echo
+    $DOCKER_COMMAND rm -f "$service"
+    echo
+    $DOCKER_COMMAND build --pull "$service"
+    echo
+    Start
+    exit
+  fi
+
+  Kill
+  echo
+  $DOCKER_COMMAND down -v --remove-orphans
+  echo
+  $DOCKER_COMMAND build --pull dev
+  echo
+  Start
+}
+
+############################################################
+# RestartNode                                              #
+############################################################
+RestartNode() {
+  EnsureEnv
+  $DOCKER_COMMAND restart dev
+}
+
+############################################################
+# Node                                                     #
+############################################################
+Node() {
+  EnsureEnv
+  if [[ "$($DOCKER_COMMAND ps -q dev 2>/dev/null)" != '' ]]; then
+    $DOCKER_COMMAND exec -it dev bash
+  else
+    $DOCKER_COMMAND run -it --rm --entrypoint=bash dev
+  fi
+}
+
+############################################################
+# Kill                                                     #
+############################################################
+Kill() {
+  local ids
+  ids="$($SUDO docker ps -q)"
+  if [[ "$ids" != '' ]]; then
+    # shellcheck disable=SC2086
+    $SUDO docker kill $ids
+  fi
+}
+
+############################################################
+# Ps                                                       #
+############################################################
+Ps() {
+  EnsureEnv
+  $DOCKER_COMMAND ps -a
+}
+
+############################################################
+# MAIN                                                     #
+############################################################
+TEMP="$(getopt -o "hr::bnlk" --long "ps,migrate,test,check" -n "$0" -- "$@")" || {
+  Help
+  exit 1
+}
+
+eval set -- "$TEMP"
+
+while true; do
+  case "$1" in
+    -h)
+      Help
+      exit 0
+      ;;
+    -r)
+      Reset "$2"
+      exit $?
+      ;;
+    -b)
+      RestartNode
+      exit $?
+      ;;
+    -n)
+      Node
+      exit $?
+      ;;
+    -l)
+      Logs
+      exit $?
+      ;;
+    -k)
+      Kill
+      exit $?
+      ;;
+    --ps)
+      Ps
+      exit $?
+      ;;
+    --migrate)
+      RunInDev pnpm --filter @quisera/api db:migrate
+      exit $?
+      ;;
+    --test)
+      RunInDev pnpm test:unit
+      exit $?
+      ;;
+    --check)
+      RunInDev sh -c "pnpm typecheck && pnpm lint && pnpm format:check"
+      exit $?
+      ;;
+    --)
+      Start
+      exit $?
+      ;;
+    *)
+      Help
+      exit 1
+      ;;
+  esac
+done

@@ -19,18 +19,18 @@
     "test:unit": "pnpm --filter @quisera/shared run build && vitest run src"
   },
   "dependencies": {
-    "@better-auth/drizzle-adapter": "1.7.23",
-    "@hono/node-server": "^1.19.5",
+    "@better-auth/drizzle-adapter": "1.7.27",
+    "@hono/node-server": "^2.1.11",
     "@quisera/shared": "workspace:*",
-    "better-auth": "1.7.23",
-    "better-sqlite3": "13.1.1",
+    "better-auth": "1.7.27",
+    "better-sqlite3": "13.2.0",
     "dotenv": "18.0.10",
     "drizzle-orm": "0.45.4",
-    "hono": "^4.13.18",
+    "hono": "^4.13.20",
     "zod": "4.6.7"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
+    "@types/better-sqlite3": "^9.6.0",
     "drizzle-kit": "0.31.11",
     "tsx": "4.23.15"
   }
