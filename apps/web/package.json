@@ -1,0 +1,37 @@
+{
+  "name": "@quisera/web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "prebuild": "pnpm --filter @quisera/shared run build",
+    "build": "vite build",
+    "pretypecheck": "pnpm --filter @quisera/shared run build",
+    "typecheck": "vue-tsc --noEmit",
+    "test:unit": "vitest run",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@fontsource-variable/dm-sans": "5.2.6",
+    "@fontsource-variable/manrope": "5.2.6",
+    "@lucide/vue": "^1.72.0",
+    "@quisera/shared": "workspace:*",
+    "@tailwindcss/vite": "^4.3.5",
+    "better-auth": "1.7.23",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "reka-ui": "^2.6.1",
+    "tailwind-merge": "^3.4.0",
+    "tailwindcss": "^4.1.17",
+    "vue": "^3.5.25",
+    "vue-router": "^4.6.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.0",
+    "@vitejs/plugin-vue": "^6.0.10",
+    "@vue/test-utils": "2.4.6",
+    "happy-dom": "18.0.1",
+    "vite": "^8.3.8",
+    "vue-tsc": "^3.1.3"
+  }
+}

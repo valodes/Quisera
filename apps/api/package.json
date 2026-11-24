@@ -1,0 +1,37 @@
+{
+  "name": "@quisera/api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file-if-exists=../../.env --import tsx --watch src/index.ts",
+    "build": "pnpm --filter @quisera/shared run build && tsc -p tsconfig.build.json",
+    "start": "node --env-file-if-exists=../../.env dist/index.js",
+    "typecheck": "pnpm --filter @quisera/shared run build && tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "node --env-file-if-exists=../../.env --import tsx src/db/migrate.ts",
+    "auth:create-admin": "node --env-file-if-exists=../../.env --import tsx src/cli/users.ts bootstrap-admin",
+    "users:prod": "node dist/cli/users.js",
+    "users": "node --env-file-if-exists=../../.env --import tsx src/cli/users.ts",
+    "db:backup": "node --env-file-if-exists=../../.env --import tsx src/cli/database.ts backup",
+    "db:restore": "node --env-file-if-exists=../../.env --import tsx src/cli/database.ts restore",
+    "db:integrity": "node --env-file-if-exists=../../.env --import tsx src/cli/database.ts integrity",
+    "e2e:prepare": "pnpm db:migrate && tsx tests/e2e/provision.ts",
+    "test:unit": "pnpm --filter @quisera/shared run build && vitest run src"
+  },
+  "dependencies": {
+    "@better-auth/drizzle-adapter": "1.7.23",
+    "@hono/node-server": "^1.19.5",
+    "@quisera/shared": "workspace:*",
+    "better-auth": "1.7.23",
+    "better-sqlite3": "13.1.1",
+    "dotenv": "18.0.10",
+    "drizzle-orm": "0.45.4",
+    "hono": "^4.13.18",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "drizzle-kit": "0.31.11",
+    "tsx": "4.23.15"
+  }
+}

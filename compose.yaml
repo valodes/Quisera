@@ -1,0 +1,60 @@
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dev
+    working_dir: /workspace
+    command: node
+    ports:
+      - '5173:5173'
+      - '3000:3000'
+    volumes:
+      - .:/workspace
+      - node_modules:/workspace/node_modules
+      - web_node_modules:/workspace/apps/web/node_modules
+      - api_node_modules:/workspace/apps/api/node_modules
+      - shared_node_modules:/workspace/packages/shared/node_modules
+    init: true
+
+  app:
+    profiles: [production]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    environment:
+      NODE_ENV: production
+      APP_URL: ${APP_URL:?Set APP_URL to the public HTTPS origin}
+      TRUSTED_ORIGINS: ${TRUSTED_ORIGINS:?Set TRUSTED_ORIGINS explicitly}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET to a random secret}
+      QUITOQUE_MAIL: ${QUITOQUE_MAIL:-}
+      QUITOQUE_MAIL_PASSWORD: ${QUITOQUE_MAIL_PASSWORD:-}
+      SQLITE_PATH: /data/quisera.sqlite
+      RECIPE_UPLOAD_DIR: /data/recipe-photos
+      API_HOST: 0.0.0.0
+      API_PORT: 3000
+      WEB_ASSETS_DIR: /app/public
+    ports:
+      - '${PORT:-3000}:3000'
+    volumes:
+      - app_data:/data
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    init: true
+
+volumes:
+  node_modules:
+  web_node_modules:
+  api_node_modules:
+  shared_node_modules:
+  app_data:

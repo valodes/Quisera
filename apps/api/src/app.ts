@@ -1,0 +1,147 @@
+import type { HttpBindings } from '@hono/node-server'
+import { serveStatic } from '@hono/node-server/serve-static'
+import { createMiddleware } from 'hono/factory'
+import { Hono } from 'hono'
+import type { AuthInstance, AuthSession } from './auth.js'
+import type { AppEnvironment } from './config/env.js'
+import type { DatabaseConnection } from './db/connection.js'
+import { createRecipeRoutes } from './recipes/routes.js'
+import { createQuitoqueClient } from './quitoque/client.js'
+import {
+  createPlanningRoutes,
+  type QuitoquePlanningClient,
+} from './planning/routes.js'
+
+type Dependencies = {
+  auth: AuthInstance
+  database: DatabaseConnection
+  environment: AppEnvironment
+  quitoquePlanningClient?: QuitoquePlanningClient
+}
+
+export type ApiHonoEnvironment = {
+  Bindings: HttpBindings
+  Variables: {
+    clientIp: string | undefined
+    session: AuthSession
+  }
+}
+
+export function requireSession(auth: AuthInstance) {
+  return createMiddleware<ApiHonoEnvironment>(async (context, next) => {
+    const session = await auth.api.getSession({
+      headers: context.req.raw.headers,
+    })
+    if (!session) {
+      return context.json({ error: 'Authentification requise.' }, 401)
+    }
+    context.set('session', session)
+    await next()
+  })
+}
+
+export function createApp({
+  auth,
+  database,
+  environment,
+  quitoquePlanningClient,
+}: Dependencies) {
+  const app = new Hono<ApiHonoEnvironment>()
+
+  app.onError((_error, context) => {
+    console.error('Unhandled API request error.')
+    return context.json({ error: 'Une erreur est survenue.' }, 500)
+  })
+
+  app.get('/health', (context) => {
+    try {
+      database.sqlite.prepare('SELECT 1').get()
+      return context.json({ status: 'ok' })
+    } catch {
+      return context.json({ status: 'unavailable' }, 503)
+    }
+  })
+
+  app.use('/api/*', async (context, next) => {
+    context.set('clientIp', context.env?.incoming?.socket.remoteAddress)
+    await next()
+  })
+
+  app.use('/api/auth/*', async (context, next) => {
+    const origin = context.req.header('origin')
+    if (origin) {
+      let requestOrigin: string
+      try {
+        requestOrigin = new URL(origin).origin
+      } catch {
+        return context.json({ error: 'Origine non autorisée.' }, 403)
+      }
+      if (!environment.TRUSTED_ORIGINS.includes(requestOrigin)) {
+        return context.json({ error: 'Origine non autorisée.' }, 403)
+      }
+    }
+    await next()
+  })
+
+  app.all('/api/auth/admin', (context) => context.notFound())
+  app.all('/api/auth/admin/*', (context) => context.notFound())
+  app.all('/api/auth/*', (context) => {
+    const headers = new Headers(context.req.raw.headers)
+    headers.delete('x-forwarded-for')
+    headers.delete('x-real-ip')
+    const clientIp = context.get('clientIp')
+    if (clientIp) headers.set('x-quisera-client-ip', clientIp)
+    else headers.delete('x-quisera-client-ip')
+    return auth.handler(new Request(context.req.raw, { headers }))
+  })
+
+  app.get('/api/me', requireSession(auth), (context) => {
+    const session = context.get('session')
+    return context.json({
+      user: {
+        id: session.user.id,
+        name: session.user.name,
+        email: session.user.email,
+      },
+    })
+  })
+
+  app.route(
+    '/api/recipes',
+    createRecipeRoutes(
+      database.client,
+      auth,
+      environment.RECIPE_UPLOAD_DIR,
+      environment.TRUSTED_ORIGINS,
+    ),
+  )
+
+  app.route(
+    '/api/planning',
+    createPlanningRoutes(
+      database.client,
+      auth,
+      environment.TRUSTED_ORIGINS,
+      quitoquePlanningClient ??
+        (environment.QUITOQUE_MAIL && environment.QUITOQUE_MAIL_PASSWORD
+          ? createQuitoqueClient({
+              email: environment.QUITOQUE_MAIL,
+              password: environment.QUITOQUE_MAIL_PASSWORD,
+            })
+          : undefined),
+    ),
+  )
+
+  if (environment.WEB_ASSETS_DIR) {
+    app.use('/*', serveStatic({ root: environment.WEB_ASSETS_DIR }))
+    app.get(
+      '*',
+      serveStatic({
+        root: environment.WEB_ASSETS_DIR,
+        path: 'index.html',
+      }),
+    )
+  }
+
+  return app
+}

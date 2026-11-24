@@ -1,0 +1,32 @@
+{
+  "id": "/",
+  "name": "Quisera",
+  "short_name": "Quisera",
+  "description": "Planification des repas et accompagnement en cuisine.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#D7E8D6",
+  "theme_color": "#173D2C",
+  "icons": [
+    {
+      "src": "/icons/quisera-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/quisera-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/quisera-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

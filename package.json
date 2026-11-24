@@ -1,0 +1,31 @@
+{
+  "name": "quisera",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.19.0",
+  "engines": {
+    "node": ">=24 <27"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @quisera/shared run build && pnpm --parallel --filter @quisera/api --filter @quisera/web run dev",
+    "typecheck": "pnpm --filter @quisera/shared run build && pnpm --filter @quisera/api run typecheck && pnpm --filter @quisera/web run typecheck",
+    "build": "pnpm --filter @quisera/shared run build && pnpm --filter @quisera/api run build && pnpm --filter @quisera/web run build",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test:unit": "pnpm --filter @quisera/shared run build && vitest run",
+    "test:e2e": "pnpm --filter @quisera/shared run build && pnpm --filter @quisera/web run test:e2e"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.10.1",
+    "eslint": "^10.14.0",
+    "eslint-plugin-vue": "^10.5.1",
+    "globals": "^16.5.0",
+    "prettier": "^3.6.2",
+    "prettier-plugin-tailwindcss": "^0.6.14",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.4",
+    "vitest": "^5.1.0"
+  }
+}

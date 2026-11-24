@@ -1,0 +1,1 @@
+ALTER TABLE `recipe` ADD `photo_thumbnail_url` text;

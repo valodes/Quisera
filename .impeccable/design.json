@@ -1,0 +1,269 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-12T19:32:00+01:00",
+  "title": "Design System: Quisera",
+  "extensions": {
+    "colorMeta": {
+      "forest": {
+        "role": "primary",
+        "displayName": "Vert forêt",
+        "canonical": "#173D2C",
+        "tonalRamp": [
+          "#000000",
+          "#07110D",
+          "#0D2319",
+          "#143426",
+          "#38594A",
+          "#7A9086",
+          "#BDC8C3",
+          "#FFFFFF"
+        ]
+      },
+      "terracotta": {
+        "role": "secondary",
+        "displayName": "Terracotta",
+        "canonical": "#C74832",
+        "tonalRamp": [
+          "#000000",
+          "#39150E",
+          "#72291D",
+          "#AB3E2B",
+          "#CF624F",
+          "#DF968A",
+          "#EFCBC4",
+          "#FFFFFF"
+        ]
+      },
+      "leaf": {
+        "role": "secondary",
+        "displayName": "Vert feuille",
+        "canonical": "#2F744E",
+        "tonalRamp": [
+          "#000000",
+          "#0D2116",
+          "#1B422D",
+          "#286343",
+          "#4D8867",
+          "#88B09A",
+          "#C4D7CC",
+          "#FFFFFF"
+        ]
+      },
+      "sage": {
+        "role": "tertiary",
+        "displayName": "Sauge",
+        "canonical": "#D7E8D6",
+        "tonalRamp": [
+          "#000000",
+          "#3D423D",
+          "#7B857A",
+          "#B8C7B7",
+          "#DDEBDC",
+          "#E8F2E8",
+          "#F4F8F3",
+          "#FFFFFF"
+        ]
+      },
+      "peach": {
+        "role": "tertiary",
+        "displayName": "Pêche",
+        "canonical": "#FCE3D8",
+        "tonalRamp": [
+          "#000000",
+          "#48413E",
+          "#90827B",
+          "#D8C3B9",
+          "#FCE7DE",
+          "#FDEFE9",
+          "#FEF7F4",
+          "#FFFFFF"
+        ]
+      },
+      "shoot": {
+        "role": "tertiary",
+        "displayName": "Jeune pousse",
+        "canonical": "#DAF097",
+        "tonalRamp": [
+          "#000000",
+          "#3E452B",
+          "#7D8956",
+          "#BBCE81",
+          "#DFF2A6",
+          "#EAF6C4",
+          "#F4FBE1",
+          "#FFFFFF"
+        ]
+      },
+      "coral": {
+        "role": "tertiary",
+        "displayName": "Corail",
+        "canonical": "#F08262",
+        "tonalRamp": [
+          "#000000",
+          "#45251C",
+          "#894A38",
+          "#CE6F54",
+          "#F29478",
+          "#F6B8A5",
+          "#FBDBD2",
+          "#FFFFFF"
+        ]
+      },
+      "tomato": {
+        "role": "tertiary",
+        "displayName": "Rouge tomate",
+        "canonical": "#E74D43",
+        "tonalRamp": [
+          "#000000",
+          "#421613",
+          "#842C26",
+          "#C64239",
+          "#EA665E",
+          "#F19994",
+          "#F8CCC9",
+          "#FFFFFF"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Manrope Variable",
+        "purpose": "Display and page headings; bundled locally under SIL OFL 1.1."
+      },
+      "body": {
+        "displayName": "DM Sans Variable",
+        "purpose": "Body text, labels, and metadata; bundled locally under SIL OFL 1.1."
+      }
+    },
+    "shadows": [],
+    "motion": [
+      {
+        "name": "ease-standard",
+        "value": "cubic-bezier(0.2, 0.8, 0.2, 1)",
+        "purpose": "Short control state transitions, disabled when reduced motion is requested."
+      },
+      {
+        "name": "duration-fast",
+        "value": "140ms",
+        "purpose": "Button and input feedback."
+      },
+      {
+        "name": "duration-normal",
+        "value": "220ms",
+        "purpose": "Future standard state transitions."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "40rem"
+      },
+      {
+        "name": "md",
+        "value": "48rem"
+      },
+      {
+        "name": "lg",
+        "value": "64rem"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Primary action with explicit focus, active, disabled, and loading states.",
+      "html": "<button class=\"ds-button-primary\" type=\"button\">Continuer</button>",
+      "css": ".ds-button-primary { min-height: 44px; padding: 8px 16px; border: 0; border-radius: 4px; background: var(--q-action); color: var(--q-action-text); font: 700 15px/1.25 'Manrope Variable', sans-serif; transition: background-color 140ms cubic-bezier(.2,.8,.2,1), transform 140ms cubic-bezier(.2,.8,.2,1); } .ds-button-primary:hover { background: var(--q-action-hover); } .ds-button-primary:focus-visible { outline: 3px solid var(--q-focus); outline-offset: 3px; } .ds-button-primary:active { transform: translateY(1px); } .ds-button-primary:disabled { cursor: not-allowed; } @media (prefers-reduced-motion: reduce) { .ds-button-primary { transition: none; transform: none; } }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Secondary action on the young-shoot surface.",
+      "html": "<button class=\"ds-button-secondary\" type=\"button\">Modifier</button>",
+      "css": ".ds-button-secondary { min-height: 44px; padding: 8px 16px; border: 0; border-radius: 4px; background: var(--q-surface-secondary); color: var(--q-text); font: 700 15px/1.25 'Manrope Variable', sans-serif; transition: background-color 140ms cubic-bezier(.2,.8,.2,1); } .ds-button-secondary:hover { background: var(--q-surface-accent); } .ds-button-secondary:focus-visible { outline: 3px solid var(--q-focus); outline-offset: 3px; } .ds-button-secondary:disabled { cursor: not-allowed; } @media (prefers-reduced-motion: reduce) { .ds-button-secondary { transition: none; } }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Low-emphasis action with a persistent hover surface.",
+      "html": "<button class=\"ds-button-ghost\" type=\"button\">Annuler</button>",
+      "css": ".ds-button-ghost { min-height: 44px; padding: 8px 16px; border: 0; border-radius: 4px; background: transparent; color: var(--q-text); font: 700 15px/1.25 'Manrope Variable', sans-serif; transition: background-color 140ms cubic-bezier(.2,.8,.2,1); } .ds-button-ghost:hover { background: var(--q-surface-secondary); } .ds-button-ghost:focus-visible { outline: 3px solid var(--q-focus); outline-offset: 3px; } .ds-button-ghost:disabled { cursor: not-allowed; } @media (prefers-reduced-motion: reduce) { .ds-button-ghost { transition: none; } }"
+    },
+    {
+      "name": "Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Labeled text entry with a visible focus ring and accessible error text.",
+      "html": "<label class=\"ds-label\" for=\"ds-input\">Adresse e-mail</label><input class=\"ds-input\" id=\"ds-input\" type=\"email\" aria-describedby=\"ds-error\" aria-invalid=\"true\"><p class=\"ds-error\" id=\"ds-error\" role=\"alert\">Erreur : Adresse invalide.</p>",
+      "css": ".ds-label { display: block; margin-bottom: 8px; color: var(--q-text); font: 600 14px/1.25 'DM Sans Variable', sans-serif; } .ds-input { box-sizing: border-box; width: 100%; min-height: 44px; padding: 8px 12px; border: 1px solid var(--q-border); border-radius: 4px; background: var(--q-surface); color: var(--q-text); font: 400 16px/1.5 'DM Sans Variable', sans-serif; } .ds-input:focus-visible { outline: 3px solid var(--q-focus); outline-offset: 2px; } .ds-input[aria-invalid='true'] { border-color: var(--q-error-border); } .ds-error { color: var(--q-text); font: 600 14px/1.5 'DM Sans Variable', sans-serif; }"
+    },
+    {
+      "name": "Surface",
+      "kind": "card",
+      "refersTo": "surface",
+      "description": "Flat semantic container with an approved tonal surface.",
+      "html": "<article class=\"ds-surface\">Contenu</article>",
+      "css": ".ds-surface { padding: 16px; border-radius: 8px; background: var(--q-canvas); color: var(--q-text); font: 400 16px/1.5 'DM Sans Variable', sans-serif; }"
+    },
+    {
+      "name": "Error Badge",
+      "kind": "chip",
+      "refersTo": "badge-error",
+      "description": "Text-labeled error state; color never carries its meaning alone.",
+      "html": "<span class=\"ds-badge-error\"><strong>Erreur :</strong> Connexion interrompue</span>",
+      "css": ".ds-badge-error { display: inline-flex; align-items: center; min-height: 24px; padding: 4px 8px; border: 1px solid var(--q-error-border); border-radius: 4px; background: var(--q-error); color: var(--q-text); font: 600 14px/1.25 'DM Sans Variable', sans-serif; }"
+    },
+    {
+      "name": "Icon Button",
+      "kind": "button",
+      "refersTo": "icon-button",
+      "description": "44px square icon action with a required accessible name.",
+      "html": "<button class=\"ds-icon-button\" type=\"button\" aria-label=\"Fermer\"><svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"m6 6 12 12M18 6 6 18\"/></svg></button>",
+      "css": ".ds-icon-button { display: inline-grid; width: 44px; height: 44px; place-items: center; border: 0; border-radius: 4px; background: transparent; color: var(--q-text); transition: background-color 140ms cubic-bezier(.2,.8,.2,1); } .ds-icon-button:hover { background: var(--q-surface-secondary); } .ds-icon-button:focus-visible { outline: 3px solid var(--q-focus); outline-offset: 3px; } .ds-icon-button:disabled { cursor: not-allowed; } @media (prefers-reduced-motion: reduce) { .ds-icon-button { transition: none; } }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Le maraîchage éditorial",
+    "overview": "This direction is derived from the supplied product brief: a contemporary, vegetal, sunlit kitchen expressed with the hierarchy and precision of modern software. The visual language pairs deep forest typography with leafy surfaces, peach warmth, and small, deliberate terracotta and tomato accents. It should feel vivid and composed rather than rustic or template-driven. The system keeps familiar web controls and a clear information hierarchy. Color, typography, and compact botanical references carry the identity; they do not change how navigation or controls work. There is no licensed Sharp Grotesk 20 or Graphik asset in the repository, so local SIL Open Font License alternatives are used until properly licensed files are supplied.",
+    "keyCharacteristics": [
+      "Vegetal color with warm, sunlit surface contrast.",
+      "Editorial headings paired with readable, measured body text.",
+      "Standard accessible controls with restrained state motion."
+    ],
+    "rules": [
+      {
+        "name": "The Palette-Only Rule",
+        "body": "Use only the eight brand colors in interface elements. Semantic roles may reuse them; do not add neutral ramps or default Tailwind colors.",
+        "section": "colors"
+      },
+      {
+        "name": "The Contrast Pairing Rule",
+        "body": "Body text uses forest on pale brand surfaces. Leaf text is reserved for pairings that meet normal-text contrast. Terracotta is not normal text. Error meaning includes a word or icon shape as well as color.",
+        "section": "colors"
+      },
+      {
+        "name": "The Quiet-Depth Rule",
+        "body": "Prefer tonal surfaces and clear spacing over stacked containers or decorative shadows.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do source all interface colors from apps/web/src/styles/tokens.css.",
+      "Do keep French user-facing copy and English code identifiers and comments.",
+      "Do preserve labels, keyboard operation, visible focus, and reduced-motion preferences.",
+      "Do use local licensed font files and retain their license notices.",
+      "Do verify food metrics before presenting them as real."
+    ],
+    "donts": [
+      "Don't use white, gray, brown, beige, black, or un-tokenized Tailwind colors in interface elements.",
+      "Don't use terracotta for normal-sized text or place forest text on forest surfaces.",
+      "Don't communicate error or availability by color alone.",
+      "Don't generate recipe cards, application pages, or route demos as part of this foundation phase.",
+      "Don't imply offline PWA support."
+    ]
+  }
+}

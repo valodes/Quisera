@@ -1,0 +1,112 @@
+@import 'tailwindcss';
+@import './styles/tokens.css';
+@import './styles/layout.css';
+@import './styles/recipes.css';
+@import '@fontsource-variable/manrope';
+@import '@fontsource-variable/dm-sans';
+
+:root {
+  font-family: var(--q-font-body);
+  color: var(--q-text);
+  background: var(--q-canvas);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-optical-sizing: auto;
+  font-weight: 400;
+  font-size: 16px;
+  line-height: 1.5;
+  accent-color: var(--q-leaf);
+  caret-color: var(--q-terracotta);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  color: var(--q-text);
+  background: var(--q-canvas);
+  font-family: var(--q-font-body);
+  font-size: 1rem;
+  line-height: 1.5;
+  text-decoration-color: var(--q-terracotta);
+  text-underline-offset: 0.18em;
+}
+
+* {
+  scrollbar-color: var(--q-leaf) var(--q-canvas);
+  scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+  width: 0.625rem;
+  height: 0.625rem;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--q-canvas);
+}
+
+*::-webkit-scrollbar-thumb {
+  border: 2px solid var(--q-canvas);
+  border-radius: var(--q-radius-card);
+  background: var(--q-leaf);
+}
+
+::selection {
+  color: var(--q-forest);
+  background: var(--q-shoot);
+}
+
+:focus-visible {
+  outline: 3px solid var(--q-focus);
+  outline-offset: 3px;
+}
+
+button,
+input,
+textarea,
+select {
+  color: inherit;
+  font: inherit;
+}
+
+button {
+  touch-action: manipulation;
+}
+
+.duration-q-fast {
+  transition-duration: var(--q-duration-fast);
+}
+
+.animate-q-spin {
+  animation: q-spin 800ms linear infinite;
+}
+
+@keyframes q-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .animate-q-spin {
+    animation: none;
+  }
+}

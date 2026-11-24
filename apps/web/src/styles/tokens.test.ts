@@ -1,0 +1,57 @@
+import { readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { describe, expect, it } from 'vitest'
+
+const tokens = readFileSync(
+  resolve(dirname(fileURLToPath(import.meta.url)), 'tokens.css'),
+  'utf8',
+)
+
+function color(token: string): string {
+  const match = tokens.match(new RegExp(`--q-${token}:\\s*(#[0-9a-fA-F]{6});`))
+
+  if (!match) throw new Error(`Missing color token: --q-${token}`)
+  return match[1]
+}
+
+function luminance(hex: string): number {
+  const [red, green, blue] = hex
+    .slice(1)
+    .match(/.{2}/g)!
+    .map((value) => parseInt(value, 16) / 255)
+    .map((value) =>
+      value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4,
+    )
+
+  return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+}
+
+function contrast(foreground: string, background: string): number {
+  const foregroundLuminance = luminance(foreground)
+  const backgroundLuminance = luminance(background)
+
+  return (
+    (Math.max(foregroundLuminance, backgroundLuminance) + 0.05) /
+    (Math.min(foregroundLuminance, backgroundLuminance) + 0.05)
+  )
+}
+
+describe('Quisera palette contrast', () => {
+  it.each([
+    ['forest', 'sage', 4.5],
+    ['forest', 'peach', 4.5],
+    ['forest', 'shoot', 4.5],
+    ['forest', 'coral', 4.5],
+    ['leaf', 'peach', 4.5],
+    ['peach', 'leaf', 4.5],
+    ['tomato', 'peach', 3],
+  ])(
+    '%s on %s meets its %s:1 contrast threshold',
+    (foreground, background, threshold) => {
+      expect(
+        contrast(color(foreground), color(background)),
+      ).toBeGreaterThanOrEqual(threshold)
+    },
+  )
+})
