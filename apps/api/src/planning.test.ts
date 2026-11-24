@@ -34,6 +34,7 @@ const selections = [0, 1].map((occurrence) => ({
   ],
   steps: ['Laver les carottes.'],
   nutriScore: null,
+  carbonScore: null,
   sourceItemId: 'item-1',
   sourcePosition: 0,
   occurrence,
@@ -217,6 +218,42 @@ describe('private delivery planning', () => {
       }),
     })
     expect(moved.status).toBe(200)
+    // Swapping two occupied slots exchanges them instead of failing with 409
+    const swapped = await app.request('/api/planning/slots/move', {
+      method: 'POST',
+      headers: {
+        cookie,
+        origin: environment.APP_URL,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        fromDate: '2026-11-20',
+        fromPeriod: 'lunch',
+        toDate: '2026-11-18',
+        toPeriod: 'dinner',
+      }),
+    })
+    expect(swapped.status).toBe(200)
+    await expect(swapped.json()).resolves.toMatchObject({
+      moved: true,
+      swapped: true,
+    })
+    // Swap back to preserve subsequent test assertions
+    const swappedBack = await app.request('/api/planning/slots/move', {
+      method: 'POST',
+      headers: {
+        cookie,
+        origin: environment.APP_URL,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        fromDate: '2026-11-18',
+        fromPeriod: 'dinner',
+        toDate: '2026-11-20',
+        toPeriod: 'lunch',
+      }),
+    })
+    expect(swappedBack.status).toBe(200)
     const needsConfirmation = await app.request(
       `/api/planning/deliveries/${cycleId}/distribute`,
       {

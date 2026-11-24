@@ -157,6 +157,7 @@ export type ImportedRecipe = {
   }>
   steps: string[]
   nutriScore: string | null
+  carbonScore: string | null
 }
 
 export type QuitoqueDelivery = {
@@ -208,15 +209,18 @@ function parseIngredients(product: Record<string, unknown>) {
     if (!items.success) {
       throw new QuitoqueApiError('Les ingrédients Quitoque sont mal formés.')
     }
-    ingredients = items.data.map((ingredient) => ({
-      name: ingredient.name,
-      quantity:
-        ingredient.quantity === null || ingredient.quantity === undefined
-          ? null
-          : String(ingredient.quantity),
-      unit: ingredient.unit ?? null,
-      notes: null,
-    }))
+    ingredients = items.data.map((ingredient) => {
+      const rawUnit = ingredient.unit?.trim() ?? null
+      return {
+        name: ingredient.name,
+        quantity:
+          ingredient.quantity === null || ingredient.quantity === undefined
+            ? null
+            : String(ingredient.quantity),
+        unit: rawUnit && rawUnit.toLowerCase() !== 'g' ? rawUnit : null,
+        notes: null,
+      }
+    })
   }
 
   const cupboard = decodeJson(product.cupboard_ingredients)
@@ -278,10 +282,23 @@ function parseMinutes(value: unknown): number | null {
   return match ? Number(match[1]) : null
 }
 
-function parseNutriScore(value: unknown): string | null {
+function parseScoreGrade(value: unknown): string | null {
+  if (typeof value === 'string') {
+    const grade = value.trim().toUpperCase()
+    return /^[A-E]$/.test(grade) ? grade : null
+  }
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const grade = Object.keys(value)[0]?.toUpperCase()
-  return grade && /^[A-E]$/.test(grade) ? grade : null
+  const record = value as Record<string, unknown>
+  for (const candidate of [
+    Object.keys(record)[0],
+    typeof record.grade === 'string' ? record.grade : undefined,
+    typeof record.value === 'string' ? record.value : undefined,
+    typeof record.label === 'string' ? record.label : undefined,
+  ]) {
+    const grade = candidate?.trim().toUpperCase()
+    if (grade && /^[A-E]$/.test(grade)) return grade
+  }
+  return null
 }
 
 function parseLabelList(value: unknown, field: string) {
@@ -342,8 +359,35 @@ function parseProduct(
     tags: parseLabelList(product.tags, 'tags'),
     ingredients: parseIngredients(product),
     steps: parseSteps(product.preparation_steps),
-    nutriScore: parseNutriScore(product.nutri_score),
+    nutriScore: parseScoreGrade(product.nutri_score),
+    carbonScore: parseScoreGrade(product.carbon_score),
   }
+}
+
+const tokenTtlMs = 10 * 60_000
+const ordersPageSize = 15
+const recipeConcurrency = 6
+const catalogPageConcurrency = 4
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let nextIndex = 0
+  const runners = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    async () => {
+      while (nextIndex < items.length) {
+        const index = nextIndex
+        nextIndex += 1
+        results[index] = await worker(items[index], index)
+      }
+    },
+  )
+  await Promise.all(runners)
+  return results
 }
 
 export function createQuitoqueClient({
@@ -412,7 +456,25 @@ export function createQuitoqueClient({
     throw lastError ?? new Error('Quitoque operation deadline exceeded.')
   }
 
-  async function request(path: string, token: string, deadline: number) {
+  let cachedToken: string | null = null
+  let cachedTokenExpiresAt = 0
+
+  async function getToken(deadline: number, forceRefresh = false) {
+    if (!forceRefresh && cachedToken && Date.now() < cachedTokenExpiresAt) {
+      return { token: cachedToken, fromCache: true }
+    }
+    const token = await login(deadline)
+    cachedToken = token
+    cachedTokenExpiresAt = Date.now() + tokenTtlMs
+    return { token, fromCache: false }
+  }
+
+  async function request(
+    path: string,
+    token: string,
+    deadline: number,
+    allowAuthRetry = false,
+  ) {
     try {
       const { response, payload } = await fetchJson(
         `${apiBase}${path}`,
@@ -425,6 +487,32 @@ export function createQuitoqueClient({
         },
         deadline,
       )
+      if (response.status === 401) {
+        if (cachedToken === token) {
+          cachedToken = null
+          cachedTokenExpiresAt = 0
+        }
+        if (allowAuthRetry) {
+          const refreshed = await getToken(deadline, true)
+          const retried = await fetchJson(
+            `${apiBase}${path}`,
+            {
+              redirect: 'error',
+              headers: {
+                accept: 'application/json',
+                authorization: `Bearer ${refreshed.token}`,
+              },
+            },
+            deadline,
+          )
+          if (!retried.response.ok) {
+            throw new QuitoqueApiError(
+              `La lecture du catalogue Quitoque a échoué (HTTP ${retried.response.status}).`,
+            )
+          }
+          return retried.payload
+        }
+      }
       if (!response.ok) {
         throw new QuitoqueApiError(
           `La lecture du catalogue Quitoque a échoué (HTTP ${response.status}).`,
@@ -468,15 +556,33 @@ export function createQuitoqueClient({
 
   const ordersById = new Map<string, z.infer<typeof deliveryOrderSchema>>()
 
-  async function fetchOrders(token: string, deadline: number) {
+  async function fetchOrders(
+    token: string,
+    deadline: number,
+    options: {
+      targetOrderId?: string
+      maxPages?: number
+      allowAuthRetry?: boolean
+    } = {},
+  ) {
+    const {
+      targetOrderId,
+      maxPages = maximumPages,
+      allowAuthRetry = false,
+    } = options
     const orders: Array<z.infer<typeof deliveryOrderSchema>> = []
-    for (let page = 1; page <= maximumPages; page += 1) {
+    for (let page = 1; page <= maxPages; page += 1) {
       const query = new URLSearchParams({
         page: String(page),
-        itemsPerPage: '100',
+        itemsPerPage: String(ordersPageSize),
       })
       const payload = ordersSchema.safeParse(
-        await request(`/shop/orders?${query}`, token, deadline),
+        await request(
+          `/shop/orders?${query}`,
+          token,
+          deadline,
+          allowAuthRetry && page === 1,
+        ),
       )
       if (!payload.success) {
         throw new QuitoqueApiError(
@@ -493,8 +599,15 @@ export function createQuitoqueClient({
         )
       }
       orders.push(...parsed.data)
-      if (entries.length < 100) return orders
+      if (
+        targetOrderId &&
+        parsed.data.some((candidate) => String(candidate.id) === targetOrderId)
+      ) {
+        return orders
+      }
+      if (entries.length < ordersPageSize) return orders
     }
+    if (maxPages < maximumPages) return orders
     throw new QuitoqueApiError(
       'La pagination Quitoque dépasse la limite prévue pour une synchronisation.',
     )
@@ -502,8 +615,11 @@ export function createQuitoqueClient({
 
   async function listDeliveries() {
     const deadline = Date.now() + operationTimeoutMs
-    const token = await login(deadline)
-    const orders = await fetchOrders(token, deadline)
+    const { token, fromCache } = await getToken(deadline)
+    const orders = await fetchOrders(token, deadline, {
+      maxPages: 1,
+      allowAuthRetry: fromCache,
+    })
     ordersById.clear()
     for (const order of orders) {
       ordersById.set(String(order.id), order)
@@ -554,6 +670,38 @@ export function createQuitoqueClient({
     return parseProduct(raw, imageUrl, thumbnailUrl)
   }
 
+  async function fetchCatalogPage(
+    start: string,
+    end: string,
+    page: number,
+    token: string,
+    deadline: number,
+  ) {
+    const query = new URLSearchParams({
+      page: String(page),
+      itemsPerPage: String(pageSize),
+      format: 'api',
+    })
+    query.set('attributes[family][1]', 'recipe')
+    const response = await request(
+      `/shop/products/${start}/${end}?${query}`,
+      token,
+      deadline,
+    )
+    const collection = catalogSchema.safeParse(response)
+    if (!collection.success) {
+      throw new QuitoqueApiError(
+        'Le catalogue Quitoque ne respecte pas le contrat observé.',
+      )
+    }
+    if (collection.data.paginator.nbPages > maximumPages) {
+      throw new QuitoqueApiError(
+        'Le catalogue Quitoque dépasse la limite prévue pour une synchronisation.',
+      )
+    }
+    return collection.data
+  }
+
   async function listSelectedRecipesForPeriod(
     start: string,
     end: string,
@@ -561,51 +709,61 @@ export function createQuitoqueClient({
     selectedProductIds: Set<string>,
     deadline: number,
   ) {
-    const collected = new Map<string, ImportedRecipe>()
-    let pageCount = 1
-    for (let page = 1; page <= pageCount && page <= maximumPages; page += 1) {
-      const query = new URLSearchParams({
-        page: String(page),
-        itemsPerPage: String(pageSize),
-        format: 'api',
-      })
-      query.set('attributes[family][1]', 'recipe')
-      const response = await request(
-        `/shop/products/${start}/${end}?${query}`,
-        token,
-        deadline,
-      )
-      const collection = catalogSchema.safeParse(response)
-      if (!collection.success) {
-        throw new QuitoqueApiError(
-          'Le catalogue Quitoque ne respecte pas le contrat observé.',
-        )
-      }
-      if (collection.data.paginator.nbPages > maximumPages) {
-        throw new QuitoqueApiError(
-          'Le catalogue Quitoque dépasse la limite prévue pour une synchronisation.',
-        )
-      }
-      pageCount = collection.data.paginator.nbPages
-      for (const product of collection.data.products) {
+    const matchedProducts = new Map<string, Record<string, unknown>>()
+    const collectMatches = (products: unknown[]) => {
+      for (const product of products) {
         const raw = z.record(z.string(), z.unknown()).parse(product)
-        const productId = z.union([z.string(), z.number()]).parse(raw.id)
-        if (!selectedProductIds.has(String(productId))) continue
-        const recipe = await loadRecipe(raw, token, deadline)
-        collected.set(String(productId), recipe)
+        const productId = String(
+          z.union([z.string(), z.number()]).parse(raw.id),
+        )
+        if (selectedProductIds.has(productId)) {
+          matchedProducts.set(productId, raw)
+        }
       }
     }
-    return collected
+
+    const firstPage = await fetchCatalogPage(start, end, 1, token, deadline)
+    collectMatches(firstPage.products)
+
+    const pageCount = Math.min(firstPage.paginator.nbPages, maximumPages)
+    if (matchedProducts.size < selectedProductIds.size && pageCount > 1) {
+      const remainingPages = Array.from(
+        { length: pageCount - 1 },
+        (_, index) => index + 2,
+      )
+      const pages = await mapWithConcurrency(
+        remainingPages,
+        catalogPageConcurrency,
+        (page) => fetchCatalogPage(start, end, page, token, deadline),
+      )
+      for (const page of pages) {
+        collectMatches(page.products)
+      }
+    }
+
+    const matchedEntries = [...matchedProducts.entries()]
+    const loaded = await mapWithConcurrency(
+      matchedEntries,
+      recipeConcurrency,
+      async ([productId, raw]) =>
+        [productId, await loadRecipe(raw, token, deadline)] as const,
+    )
+    return new Map<string, ImportedRecipe>(loaded)
   }
 
   async function listSelectedRecipes(externalOrderId: string) {
     const deadline = Date.now() + operationTimeoutMs
-    const token = await login(deadline)
-    ordersById.clear()
-    for (const candidate of await fetchOrders(token, deadline)) {
-      ordersById.set(String(candidate.id), candidate)
+    const { token, fromCache } = await getToken(deadline)
+    let order = ordersById.get(externalOrderId)
+    if (!order?.tokenValue) {
+      for (const candidate of await fetchOrders(token, deadline, {
+        targetOrderId: externalOrderId,
+        allowAuthRetry: fromCache,
+      })) {
+        ordersById.set(String(candidate.id), candidate)
+      }
+      order = ordersById.get(externalOrderId)
     }
-    const order = ordersById.get(externalOrderId)
     if (!order?.tokenValue) {
       throw new QuitoqueApiError(
         'La livraison Quitoque sélectionnée n’est plus accessible.',
@@ -638,6 +796,7 @@ export function createQuitoqueClient({
           `/shop/orders/${encodeURIComponent(tokenValue)}/items?${query}`,
           token,
           deadline,
+          fromCache && page === 1,
         ),
       )
       if (!payload.success) {
@@ -717,6 +876,7 @@ export function createQuitoqueClient({
           ingredients: recipe?.ingredients ?? [],
           steps: recipe?.steps ?? [],
           nutriScore: recipe?.nutriScore ?? null,
+          carbonScore: recipe?.carbonScore ?? null,
         })
       }
     }

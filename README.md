@@ -4,32 +4,28 @@ PWA privée du foyer pour organiser les repas et cuisiner. L’interface est en 
 
 ## Prérequis et premier démarrage
 
-- Node.js 24 LTS, pnpm 12.19.0 via Corepack, Docker et Docker Compose.
+- Node.js 26 LTS, pnpm 12.23.0, Docker et Docker Compose.
 - Copier `.env.example` vers `.env`, puis renseigner `BETTER_AUTH_SECRET` avec au moins 32 caractères aléatoires (`openssl rand -hex 32`). Ne jamais committer `.env`.
 - Installer et lancer les migrations une fois :
 
 ```sh
-corepack enable
 pnpm install --frozen-lockfile
 pnpm --filter @quisera/api db:migrate
 pnpm dev
 ```
 
-Le shell de développement est disponible sur `http://localhost:5173` et l’API sur le proxy de même origine. Une migration n’est jamais lancée automatiquement au démarrage.
+Le shell de développement est disponible sur `http://localhost:3131` et l’API sur le proxy de même origine. Une migration n’est jamais lancée automatiquement au démarrage.
 
 ## Docker Compose
 
-Le service `dev` est le seul conteneur de développement ; il ne démarre aucun serveur sans commande. Les workspaces et dépendances restent montés pour le travail local.
+Le script `./start-dev` gère le conteneur de développement (`./start-dev -h` pour la liste des options : `-r` reset/rebuild, `-n` bash dans `dev`, `-l` logs, `-b` restart, `-k` kill, `--ps`, `--migrate`, `--test`, `--check`). Au premier lancement, il crée `.env` depuis `.env.example` avec un `BETTER_AUTH_SECRET` généré si absent.
 
 ```sh
-docker compose build dev
-docker compose run --rm dev pnpm install --frozen-lockfile
-docker compose run --rm dev pnpm --version
-docker compose run --rm dev pnpm --filter @quisera/api db:migrate
-docker compose run --rm --service-ports dev pnpm dev
+./start-dev --migrate
+./start-dev
 ```
 
-L’application de développement est sur `http://localhost:5173`. Le service Compose `app`, activé uniquement par le profil `production`, sert le frontend et Hono dans un conteneur non-root et conserve SQLite dans le volume `app_data`. Avant son démarrage, injecter les variables de production requises (`APP_URL` HTTPS, `TRUSTED_ORIGINS`, `BETTER_AUTH_SECRET`) et appliquer explicitement les migrations :
+L’application de développement est sur `http://localhost:3131`. Le service Compose `app`, activé uniquement par le profil `production`, sert le frontend et Hono dans un conteneur non-root et conserve SQLite dans le volume `app_data`. Avant son démarrage, injecter les variables de production requises (`APP_URL` HTTPS, `TRUSTED_ORIGINS`, `BETTER_AUTH_SECRET`) et appliquer explicitement les migrations :
 
 ```sh
 docker compose --profile production build app

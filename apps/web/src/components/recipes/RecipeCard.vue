@@ -4,6 +4,7 @@ import { RouterLink } from 'vue-router'
 import { Clock3, Heart, Leaf, Star } from '@lucide/vue'
 import type { RecipeSummary } from '@quisera/shared'
 import IconButton from '@/components/ui/IconButton.vue'
+import ScoreBadge from '@/components/ui/ScoreBadge.vue'
 import { setFavorite } from '@/recipes/api'
 
 const props = withDefaults(
@@ -91,13 +92,8 @@ async function toggleFavorite() {
           >
         </div>
         <div class="recipe-card__scores">
-          <span
-            ><b>Nutri-Score</b>{{ nutriScore?.value ?? 'Non disponible' }}</span
-          >
-          <span
-            ><b>Score carbone</b
-            >{{ carbonScore?.value ?? 'Non disponible' }}</span
-          >
+          <ScoreBadge kind="nutri" :grade="nutriScore?.value" />
+          <ScoreBadge kind="eco" :grade="carbonScore?.value" />
         </div>
       </div>
     </RouterLink>

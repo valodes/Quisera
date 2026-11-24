@@ -8,9 +8,15 @@ const tokens = readFileSync(
   'utf8',
 )
 
-function color(token: string): string {
-  const match = tokens.match(new RegExp(`--q-${token}:\\s*(#[0-9a-fA-F]{6});`))
+function extractBlock(selector: string): string {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = tokens.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`))
+  if (!match) throw new Error(`Missing CSS block: ${selector}`)
+  return match[1]
+}
 
+function colorFrom(block: string, token: string): string {
+  const match = block.match(new RegExp(`--q-${token}:\\s*(#[0-9a-fA-F]{6});`))
   if (!match) throw new Error(`Missing color token: --q-${token}`)
   return match[1]
 }
@@ -37,7 +43,38 @@ function contrast(foreground: string, background: string): number {
   )
 }
 
-describe('Quisera palette contrast', () => {
+const themes = [
+  { name: 'jardin (default)', selector: ':root', hasExplicitSidebar: false },
+  {
+    name: 'catppuccin',
+    selector: ":root[data-theme='catppuccin']",
+    hasExplicitSidebar: true,
+  },
+  {
+    name: 'moccachino',
+    selector: ":root[data-theme='moccachino']",
+    hasExplicitSidebar: true,
+  },
+  {
+    name: 'sakura',
+    selector: ":root[data-theme='sakura']",
+    hasExplicitSidebar: true,
+  },
+  {
+    name: 'nocturne',
+    selector: ":root[data-theme='nocturne']",
+    hasExplicitSidebar: true,
+  },
+  {
+    name: 'foret-nuit',
+    selector: ":root[data-theme='foret-nuit']",
+    hasExplicitSidebar: true,
+  },
+] as const
+
+describe.each(themes)('Theme "$name" WCAG contrast', (theme) => {
+  const block = extractBlock(theme.selector)
+
   it.each([
     ['forest', 'sage', 4.5],
     ['forest', 'peach', 4.5],
@@ -50,8 +87,19 @@ describe('Quisera palette contrast', () => {
     '%s on %s meets its %s:1 contrast threshold',
     (foreground, background, threshold) => {
       expect(
-        contrast(color(foreground), color(background)),
+        contrast(colorFrom(block, foreground), colorFrom(block, background)),
       ).toBeGreaterThanOrEqual(threshold)
     },
   )
+
+  if (theme.hasExplicitSidebar) {
+    it('sidebar-text on sidebar-bg meets 4.5:1 contrast threshold', () => {
+      expect(
+        contrast(
+          colorFrom(block, 'sidebar-text'),
+          colorFrom(block, 'sidebar-bg'),
+        ),
+      ).toBeGreaterThanOrEqual(4.5)
+    })
+  }
 })

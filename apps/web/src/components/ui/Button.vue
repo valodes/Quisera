@@ -22,7 +22,7 @@ withDefaults(
     :type="type"
     :disabled="disabled || loading"
     :aria-busy="loading ? 'true' : undefined"
-    class="gap-q-2 rounded-q-control px-q-4 py-q-2 font-display text-button duration-q-fast ease-q-standard focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-q-focus inline-flex min-h-[var(--q-touch-target)] items-center justify-center font-semibold transition-colors active:translate-y-px disabled:cursor-not-allowed motion-reduce:transform-none"
+    class="gap-q-2 rounded-q-control px-q-4 py-q-2 font-display text-button duration-q-fast ease-q-standard focus-visible:outline-q-focus inline-flex min-h-[var(--q-touch-target)] items-center justify-center font-semibold transition-colors focus-visible:outline-3 focus-visible:outline-offset-3 active:translate-y-px disabled:cursor-not-allowed motion-reduce:transform-none"
     :class="{
       'bg-q-action text-q-action-text enabled:hover:bg-q-action-hover disabled:ring-q-action-text disabled:ring-2 disabled:ring-inset':
         variant === 'primary',
