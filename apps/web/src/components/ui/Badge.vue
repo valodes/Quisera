@@ -12,7 +12,7 @@ withDefaults(
 <template>
   <span
     :data-variant="variant"
-    class="rounded-q-control px-q-2 py-q-1 font-body text-label inline-flex min-h-6 items-center border border-transparent font-semibold leading-tight"
+    class="rounded-q-control px-q-2 py-q-1 font-body text-label inline-flex min-h-6 items-center border border-transparent leading-tight font-semibold"
     :class="{
       'bg-q-info text-q-text': variant === 'info',
       'bg-q-success text-q-success-text': variant === 'success',
