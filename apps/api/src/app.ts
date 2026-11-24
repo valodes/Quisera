@@ -11,6 +11,10 @@ import {
   createPlanningRoutes,
   type QuitoquePlanningClient,
 } from './planning/routes.js'
+import { createProfileRoutes } from './profile/routes.js'
+import { createHouseholdRoutes } from './household/routes.js'
+import { createQuitoqueBoxClient } from './quitoque/box-client.js'
+import { createPlanificationRoutes } from './planification/routes.js'
 
 type Dependencies = {
   auth: AuthInstance
@@ -129,6 +133,35 @@ export function createApp({
               password: environment.QUITOQUE_MAIL_PASSWORD,
             })
           : undefined),
+    ),
+  )
+
+  app.route(
+    '/api/profile',
+    createProfileRoutes(database.client, auth, environment.TRUSTED_ORIGINS),
+  )
+
+  app.route(
+    '/api/household',
+    createHouseholdRoutes(
+      database.client,
+      auth,
+      environment.APP_URL,
+      environment.TRUSTED_ORIGINS,
+    ),
+  )
+
+  app.route(
+    '/api/planification',
+    createPlanificationRoutes(
+      auth,
+      environment.TRUSTED_ORIGINS,
+      environment.QUITOQUE_MAIL && environment.QUITOQUE_MAIL_PASSWORD
+        ? createQuitoqueBoxClient({
+            email: environment.QUITOQUE_MAIL,
+            password: environment.QUITOQUE_MAIL_PASSWORD,
+          })
+        : undefined,
     ),
   )
 

@@ -1,4 +1,11 @@
-import { BookOpen, CalendarDays, ChefHat, House, Settings } from '@lucide/vue'
+import {
+  BookOpen,
+  CalendarDays,
+  ChefHat,
+  House,
+  Settings,
+  ShoppingBasket,
+} from '@lucide/vue'
 import type { Component } from 'vue'
 
 export type NavigationItem = {
@@ -27,6 +34,14 @@ export const navigationItems = [
     description: 'Organiser les repas de la semaine à venir.',
     icon: CalendarDays,
     mobilePrimary: true,
+  },
+  {
+    name: 'planification',
+    path: '/planification',
+    label: 'Planification',
+    description: 'Composer et ajuster les prochaines box Quitoque.',
+    icon: ShoppingBasket,
+    mobilePrimary: false,
   },
   {
     name: 'recipes',
