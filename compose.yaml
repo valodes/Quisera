@@ -5,10 +5,8 @@ services:
       dockerfile: Dockerfile
       target: dev
     working_dir: /workspace
-    command: node
     ports:
-      - '5173:5173'
-      - '3000:3000'
+      - '3131:3131'
     volumes:
       - .:/workspace
       - node_modules:/workspace/node_modules
@@ -36,7 +34,7 @@ services:
       API_PORT: 3000
       WEB_ASSETS_DIR: /app/public
     ports:
-      - '${PORT:-3000}:3000'
+      - '${PORT:-3131}:3000'
     volumes:
       - app_data:/data
     healthcheck:

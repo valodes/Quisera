@@ -661,8 +661,10 @@ export function createPlanningRoutes(
       )
       .get()
     if (!meal) return context.json({ error: 'Aucun repas à déplacer.' }, 404)
+    if (value.fromDate === value.toDate && value.fromPeriod === value.toPeriod)
+      return context.json({ moved: true, swapped: false })
     const occupied = database
-      .select({ id: plannedMeal.id })
+      .select()
       .from(plannedMeal)
       .where(
         and(
@@ -671,31 +673,70 @@ export function createPlanningRoutes(
         ),
       )
       .get()
-    if (occupied)
-      return context.json(
-        { error: 'Le créneau de destination est déjà occupé.' },
-        409,
-      )
-    if (meal.category === 'quitoque' && meal.deliveryCycleId) {
+    const checkQuitoqueTarget = (
+      item: typeof meal,
+      targetDate: string,
+      targetPeriod: 'lunch' | 'dinner',
+    ) => {
+      if (item.category !== 'quitoque' || !item.deliveryCycleId) return true
       const cycle = database
         .select()
         .from(deliveryCycle)
-        .where(eq(deliveryCycle.id, meal.deliveryCycleId))
+        .where(eq(deliveryCycle.id, item.deliveryCycleId))
         .get()
-      if (
-        !cycle ||
-        !deliveryCycleSlots(cycle.deliveryDate).some(
-          (slot) =>
-            slot.date === value.toDate && slot.period === value.toPeriod,
-        )
+      return Boolean(
+        cycle &&
+        deliveryCycleSlots(cycle.deliveryDate).some(
+          (slot) => slot.date === targetDate && slot.period === targetPeriod,
+        ),
       )
-        return context.json(
-          {
-            error:
-              'Une recette Quitoque doit rester dans les créneaux de sa livraison.',
-          },
-          400,
-        )
+    }
+    if (!checkQuitoqueTarget(meal, value.toDate, value.toPeriod))
+      return context.json(
+        {
+          error:
+            'Une recette Quitoque doit rester dans les créneaux de sa livraison.',
+        },
+        400,
+      )
+    if (
+      occupied &&
+      !checkQuitoqueTarget(occupied, value.fromDate, value.fromPeriod)
+    )
+      return context.json(
+        {
+          error:
+            'Une recette Quitoque doit rester dans les créneaux de sa livraison.',
+        },
+        400,
+      )
+    const now = new Date()
+    if (occupied) {
+      database.transaction((tx) => {
+        tx.update(plannedMeal)
+          .set({ date: '__swap__', updatedAt: now })
+          .where(eq(plannedMeal.id, occupied.id))
+          .run()
+        tx.update(plannedMeal)
+          .set({
+            date: value.toDate,
+            period: value.toPeriod,
+            origin: 'manual',
+            updatedAt: now,
+          })
+          .where(eq(plannedMeal.id, meal.id))
+          .run()
+        tx.update(plannedMeal)
+          .set({
+            date: value.fromDate,
+            period: value.fromPeriod,
+            origin: 'manual',
+            updatedAt: now,
+          })
+          .where(eq(plannedMeal.id, occupied.id))
+          .run()
+      })
+      return context.json({ moved: true, swapped: true })
     }
     database
       .update(plannedMeal)
@@ -703,11 +744,11 @@ export function createPlanningRoutes(
         date: value.toDate,
         period: value.toPeriod,
         origin: 'manual',
-        updatedAt: new Date(),
+        updatedAt: now,
       })
       .where(eq(plannedMeal.id, meal.id))
       .run()
-    return context.json({ moved: true })
+    return context.json({ moved: true, swapped: false })
   })
 
   return router
@@ -734,6 +775,7 @@ function selectionValues(
     photoThumbnailUrl: item.thumbnailUrl,
     totalMinutes: item.totalMinutes,
     nutriScore: item.nutriScore,
+    carbonScore: item.carbonScore,
     ingredientsJson: JSON.stringify(item.ingredients),
     stepsJson: JSON.stringify(item.steps),
     updatedAt: now,

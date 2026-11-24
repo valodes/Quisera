@@ -9,6 +9,9 @@ export type DeliverySnapshot = {
   description: string | null
   photoUrl: string | null
   photoThumbnailUrl: string | null
+  totalMinutes: number | null
+  nutriScore: string | null
+  carbonScore: string | null
   ingredientsJson: string
   stepsJson: string
 }
