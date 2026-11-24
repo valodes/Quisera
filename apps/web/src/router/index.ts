@@ -8,10 +8,20 @@ import RecipeLibraryView from '@/views/RecipeLibraryView.vue'
 import RecipeDetailView from '@/views/RecipeDetailView.vue'
 import RecipeFormView from '@/views/RecipeFormView.vue'
 import PlanningView from '@/views/PlanningView.vue'
+import PlanificationView from '@/views/PlanificationView.vue'
+import HomeView from '@/views/HomeView.vue'
+import SettingsView from '@/views/SettingsView.vue'
+import AcceptInvitationView from '@/views/AcceptInvitationView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
+    {
+      path: '/',
+      name: 'home',
+      component: HomeView,
+      meta: { title: 'Accueil', requiresAuth: true },
+    },
     {
       path: '/connexion',
       name: 'connexion',
@@ -48,8 +58,33 @@ const router = createRouter({
       component: PlanningView,
       meta: { title: 'Planning', requiresAuth: true },
     },
+    {
+      path: '/planification',
+      name: 'planification',
+      component: PlanificationView,
+      meta: { title: 'Planification Quitoque', requiresAuth: true },
+    },
+    {
+      path: '/parametres',
+      name: 'settings',
+      component: SettingsView,
+      meta: { title: 'Paramètres', requiresAuth: true },
+    },
+    {
+      path: '/invitation/:token',
+      name: 'accept-invitation',
+      component: AcceptInvitationView,
+      meta: { title: 'Invitation au foyer', public: true },
+    },
     ...navigationItems
-      .filter((item) => item.name !== 'recipes' && item.name !== 'planning')
+      .filter(
+        (item) =>
+          item.name !== 'home' &&
+          item.name !== 'recipes' &&
+          item.name !== 'planning' &&
+          item.name !== 'planification' &&
+          item.name !== 'settings',
+      )
       .map((item) => ({
         path: item.path,
         name: item.name,
@@ -74,11 +109,13 @@ const router = createRouter({
 
 router.beforeEach(async (to) => {
   if (to.meta.public) {
-    try {
-      const session = await authClient.getSession()
-      if (session.data) return safeReturnTo(to.query.returnTo)
-    } catch {
-      return true
+    if (to.name === 'connexion') {
+      try {
+        const session = await authClient.getSession()
+        if (session.data) return safeReturnTo(to.query.returnTo)
+      } catch {
+        return true
+      }
     }
     return true
   }

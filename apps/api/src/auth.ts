@@ -35,7 +35,7 @@ export function createAuth(
       enabled: true,
       storage: 'database',
       window: 60,
-      max: 100,
+      max: environment.NODE_ENV === 'test' ? 500 : 100,
       customRules: {
         '/sign-in/email': {
           window: 60,
