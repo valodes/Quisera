@@ -63,46 +63,14 @@ const walletSchema = z.object({
 
 const geocodeCache = new Map<string, { lat: number; lon: number } | null>()
 
-export function createPlanificationRoutes(
-  auth: AuthInstance,
-  trustedOrigins: readonly string[],
-  boxClient?: QuitoqueBoxClient,
-) {
+export function createPlanificationRoutes(auth: AuthInstance, boxClient?: QuitoqueBoxClient) {
   const routes = new Hono<ApiHonoEnvironment>()
-
-  routes.use('*', async (context, next) => {
-    if (
-      context.req.method !== 'GET' &&
-      context.req.method !== 'HEAD' &&
-      context.req.method !== 'OPTIONS'
-    ) {
-      const origin = context.req.header('origin')
-      if (origin) {
-        let requestOrigin: string
-        try {
-          requestOrigin = new URL(origin).origin
-        } catch {
-          return context.json({ error: 'Origine non autorisée.' }, 403)
-        }
-        if (
-          requestOrigin !== origin ||
-          !trustedOrigins.includes(requestOrigin)
-        ) {
-          return context.json({ error: 'Origine non autorisée.' }, 403)
-        }
-      }
-    }
-    await next()
-  })
 
   routes.use('*', requireSession(auth))
 
   routes.get('/weeks', async (context) => {
     if (!boxClient) {
-      return context.json(
-        { error: 'La connexion Quitoque n’est pas configurée.' },
-        503,
-      )
+      return context.json({ error: 'La connexion Quitoque n’est pas configurée.' }, 503)
     }
     try {
       const weeks = await boxClient.listUpcomingBoxes()
@@ -118,10 +86,7 @@ export function createPlanificationRoutes(
 
   routes.get('/catalog', async (context) => {
     if (!boxClient) {
-      return context.json(
-        { error: 'La connexion Quitoque n’est pas configurée.' },
-        503,
-      )
+      return context.json({ error: 'La connexion Quitoque n’est pas configurée.' }, 503)
     }
     const parsed = catalogQuerySchema.safeParse({
       start: context.req.query('start'),
@@ -149,14 +114,9 @@ export function createPlanificationRoutes(
 
   routes.post('/weeks/:orderId/items', async (context) => {
     if (!boxClient) {
-      return context.json(
-        { error: 'La connexion Quitoque n’est pas configurée.' },
-        503,
-      )
+      return context.json({ error: 'La connexion Quitoque n’est pas configurée.' }, 503)
     }
-    const parsed = addItemSchema.safeParse(
-      await context.req.json().catch(() => null),
-    )
+    const parsed = addItemSchema.safeParse(await context.req.json().catch(() => null))
     if (!parsed.success) {
       return context.json({ error: 'Article invalide.' }, 400)
     }
@@ -178,14 +138,9 @@ export function createPlanificationRoutes(
 
   routes.patch('/weeks/:orderId/items/:itemId', async (context) => {
     if (!boxClient) {
-      return context.json(
-        { error: 'La connexion Quitoque n’est pas configurée.' },
-        503,
-      )
+      return context.json({ error: 'La connexion Quitoque n’est pas configurée.' }, 503)
     }
-    const parsed = updateQuantitySchema.safeParse(
-      await context.req.json().catch(() => null),
-    )
+    const parsed = updateQuantitySchema.safeParse(await context.req.json().catch(() => null))
     if (!parsed.success) {
       return context.json({ error: 'Quantité invalide.' }, 400)
     }
@@ -198,19 +153,14 @@ export function createPlanificationRoutes(
       return context.json({ week })
     } catch (error) {
       const message =
-        error instanceof QuitoqueApiError
-          ? error.message
-          : 'Impossible de modifier la quantité.'
+        error instanceof QuitoqueApiError ? error.message : 'Impossible de modifier la quantité.'
       return context.json({ error: message }, 502)
     }
   })
 
   routes.delete('/weeks/:orderId/items/:itemId', async (context) => {
     if (!boxClient) {
-      return context.json(
-        { error: 'La connexion Quitoque n’est pas configurée.' },
-        503,
-      )
+      return context.json({ error: 'La connexion Quitoque n’est pas configurée.' }, 503)
     }
     try {
       const week = await boxClient.removeItem(
@@ -229,10 +179,7 @@ export function createPlanificationRoutes(
 
   routes.get('/time-slots', async (context) => {
     if (!boxClient) {
-      return context.json(
-        { error: 'La connexion Quitoque n’est pas configurée.' },
-        503,
-      )
+      return context.json({ error: 'La connexion Quitoque n’est pas configurée.' }, 503)
     }
     const parsed = timeSlotsQuerySchema.safeParse({
       postalCode: context.req.query('postalCode'),
@@ -258,22 +205,14 @@ export function createPlanificationRoutes(
 
   routes.post('/weeks/:orderId/servings', async (context) => {
     if (!boxClient) {
-      return context.json(
-        { error: 'La connexion Quitoque n’est pas configurée.' },
-        503,
-      )
+      return context.json({ error: 'La connexion Quitoque n’est pas configurée.' }, 503)
     }
-    const parsed = servingsSchema.safeParse(
-      await context.req.json().catch(() => null),
-    )
+    const parsed = servingsSchema.safeParse(await context.req.json().catch(() => null))
     if (!parsed.success) {
       return context.json({ error: 'Nombre de personnes invalide.' }, 400)
     }
     try {
-      const week = await boxClient.updateServings(
-        context.req.param('orderId'),
-        parsed.data.size,
-      )
+      const week = await boxClient.updateServings(context.req.param('orderId'), parsed.data.size)
       return context.json({ week })
     } catch (error) {
       const message =
@@ -286,14 +225,9 @@ export function createPlanificationRoutes(
 
   routes.patch('/weeks/:orderId/delivery', async (context) => {
     if (!boxClient) {
-      return context.json(
-        { error: 'La connexion Quitoque n’est pas configurée.' },
-        503,
-      )
+      return context.json({ error: 'La connexion Quitoque n’est pas configurée.' }, 503)
     }
-    const parsed = deliverySlotSchema.safeParse(
-      await context.req.json().catch(() => null),
-    )
+    const parsed = deliverySlotSchema.safeParse(await context.req.json().catch(() => null))
     if (!parsed.success) {
       return context.json({ error: 'Créneau de livraison invalide.' }, 400)
     }
@@ -315,56 +249,36 @@ export function createPlanificationRoutes(
 
   routes.put('/weeks/:orderId/coupon', async (context) => {
     if (!boxClient) {
-      return context.json(
-        { error: 'La connexion Quitoque n’est pas configurée.' },
-        503,
-      )
+      return context.json({ error: 'La connexion Quitoque n’est pas configurée.' }, 503)
     }
-    const parsed = couponSchema.safeParse(
-      await context.req.json().catch(() => null),
-    )
+    const parsed = couponSchema.safeParse(await context.req.json().catch(() => null))
     if (!parsed.success) {
       return context.json({ error: 'Code promo invalide.' }, 400)
     }
     try {
-      const week = await boxClient.applyCoupon(
-        context.req.param('orderId'),
-        parsed.data.couponCode,
-      )
+      const week = await boxClient.applyCoupon(context.req.param('orderId'), parsed.data.couponCode)
       return context.json({ week })
     } catch (error) {
       const message =
-        error instanceof QuitoqueApiError
-          ? error.message
-          : 'Impossible d’appliquer ce code promo.'
+        error instanceof QuitoqueApiError ? error.message : 'Impossible d’appliquer ce code promo.'
       return context.json({ error: message }, 502)
     }
   })
 
   routes.post('/weeks/:orderId/wallet', async (context) => {
     if (!boxClient) {
-      return context.json(
-        { error: 'La connexion Quitoque n’est pas configurée.' },
-        503,
-      )
+      return context.json({ error: 'La connexion Quitoque n’est pas configurée.' }, 503)
     }
-    const parsed = walletSchema.safeParse(
-      await context.req.json().catch(() => null),
-    )
+    const parsed = walletSchema.safeParse(await context.req.json().catch(() => null))
     if (!parsed.success) {
       return context.json({ error: 'Paramètre cagnotte invalide.' }, 400)
     }
     try {
-      const week = await boxClient.toggleWallet(
-        context.req.param('orderId'),
-        parsed.data.useWallet,
-      )
+      const week = await boxClient.toggleWallet(context.req.param('orderId'), parsed.data.useWallet)
       return context.json({ week })
     } catch (error) {
       const message =
-        error instanceof QuitoqueApiError
-          ? error.message
-          : 'Impossible de modifier la cagnotte.'
+        error instanceof QuitoqueApiError ? error.message : 'Impossible de modifier la cagnotte.'
       return context.json({ error: message }, 502)
     }
   })
@@ -383,16 +297,13 @@ export function createPlanificationRoutes(
         format: 'json',
         limit: '1',
       })
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?${params}`,
-        {
-          headers: {
-            accept: 'application/json',
-            'user-agent': 'Quisera/1.0 (private household app)',
-          },
-          signal: AbortSignal.timeout(6000),
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, {
+        headers: {
+          accept: 'application/json',
+          'user-agent': 'Quisera/1.0 (private household app)',
         },
-      )
+        signal: AbortSignal.timeout(6000),
+      })
       if (!response.ok) {
         geocodeCache.set(query, null)
         return context.json({ coords: null })
@@ -403,9 +314,7 @@ export function createPlanificationRoutes(
       }>
       const first = rows[0]
       const coords =
-        first?.lat && first?.lon
-          ? { lat: Number(first.lat), lon: Number(first.lon) }
-          : null
+        first?.lat && first?.lon ? { lat: Number(first.lat), lon: Number(first.lon) } : null
       geocodeCache.set(query, coords)
       return context.json({ coords })
     } catch {

@@ -1,3 +1,4 @@
+import { parseArgs } from 'node:util'
 import { and, eq, sql } from 'drizzle-orm'
 import { parseEnvironment } from '../config/env.js'
 import { createAuth } from '../auth.js'
@@ -5,27 +6,34 @@ import { openDatabase } from '../db/connection.js'
 import { account, user } from '../db/schema.js'
 import { promptConfirmedPassword, promptLine, promptSecret } from './prompt.js'
 
-const args = process.argv.slice(2)
-if (args[0] === '--') args.shift()
-const [action, ...options] = args
-if (options[0] === '--') options.shift()
-const parsedOptions = new Map<string, string>()
-for (let index = 0; index < options.length; index += 1) {
-  const option = options[index]
-  if (
-    !option.startsWith('--') ||
-    !options[index + 1] ||
-    options[index + 1].startsWith('--')
-  ) {
-    throw new Error(
-      'Usage: pnpm users <bootstrap-admin|create|reset-password> --email <address> [--name <name>]',
-    )
-  }
-  if (option === '--password')
-    throw new Error('Passwords must be entered at the hidden prompt.')
-  parsedOptions.set(option, options[index + 1])
-  index += 1
+const rawArgs = process.argv.slice(2)
+if (rawArgs[0] === '--') rawArgs.shift()
+
+let parsed: ReturnType<typeof parseArgs>
+try {
+  parsed = parseArgs({
+    args: rawArgs,
+    options: {
+      email: { type: 'string' },
+      name: { type: 'string' },
+      password: { type: 'string' },
+    },
+    allowPositionals: true,
+    strict: true,
+  })
+} catch {
+  throw new Error(
+    'Usage: pnpm users <bootstrap-admin|create|reset-password> --email <address> [--name <name>]',
+  )
 }
+
+if (parsed.values['password'] !== undefined) {
+  throw new Error('Passwords must be entered at the hidden prompt.')
+}
+
+const action = parsed.positionals[0]
+const emailArg = typeof parsed.values['email'] === 'string' ? parsed.values['email'] : undefined
+const nameArg = typeof parsed.values['name'] === 'string' ? parsed.values['name'] : undefined
 
 const environment = parseEnvironment()
 const connection = openDatabase(environment.SQLITE_PATH)
@@ -38,9 +46,7 @@ async function operatorSession() {
     body: { email, password },
     returnHeaders: true,
   })
-  const cookies = signedIn.headers
-    .getSetCookie()
-    .map((cookie) => cookie.split(';', 1)[0])
+  const cookies = signedIn.headers.getSetCookie().map((cookie) => cookie.split(';', 1)[0])
   if (cookies.length === 0 || 'error' in signedIn.response) {
     throw new Error('Operator authentication failed.')
   }
@@ -58,19 +64,17 @@ async function operatorSession() {
 }
 
 try {
-  const email = parsedOptions.get('--email')?.toLowerCase()
+  const email = emailArg?.toLowerCase()
   if (action === 'bootstrap-admin') {
     if (!email) throw new Error('An email is required with --email.')
-    const name = parsedOptions.get('--name')
+    const name = nameArg
     if (!name) throw new Error('A name is required with --name.')
-    const [{ total }] = connection.client
+    const countRow = connection.client
       .select({ total: sql<number>`count(*)` })
       .from(user)
-      .all()
-    if (total !== 0)
-      throw new Error(
-        'The initial administrator can only be created in an empty database.',
-      )
+      .get()
+    if ((countRow?.total ?? 0) !== 0)
+      throw new Error('The initial administrator can only be created in an empty database.')
     const password = await promptConfirmedPassword()
     await auth.api.createUser({
       body: { email, name, password, role: 'admin' },
@@ -78,13 +82,9 @@ try {
     console.info('Initial administrator created.')
   } else if (action === 'create') {
     if (!email) throw new Error('An email is required with --email.')
-    const name = parsedOptions.get('--name')
+    const name = nameArg
     if (!name) throw new Error('A name is required with --name.')
-    const operatorAccount = connection.client
-      .select({ id: user.id })
-      .from(user)
-      .limit(1)
-      .get()
+    const operatorAccount = connection.client.select({ id: user.id }).from(user).limit(1).get()
     if (!operatorAccount) {
       throw new Error(
         'No operator account exists. Create the initial administrator with auth:create-admin first.',
@@ -112,10 +112,7 @@ try {
     const target = connection.client
       .select({ id: user.id })
       .from(user)
-      .innerJoin(
-        account,
-        and(eq(account.userId, user.id), eq(account.providerId, 'credential')),
-      )
+      .innerJoin(account, and(eq(account.userId, user.id), eq(account.providerId, 'credential')))
       .where(eq(user.email, email))
       .get()
     if (!target) throw new Error('Credential account not found.')

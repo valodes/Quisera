@@ -6,12 +6,7 @@ import type { ApiHonoEnvironment } from '../app.js'
 import { requireSession } from '../app.js'
 import type { AuthInstance } from '../auth.js'
 import type { DatabaseClient } from '../db/connection.js'
-import {
-  household,
-  householdInvitation,
-  householdMember,
-  user,
-} from '../db/schema.js'
+import { household, householdInvitation, householdMember, user } from '../db/schema.js'
 
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000
 const usernamePattern = /^[a-z0-9._-]{3,30}$/
@@ -93,10 +88,7 @@ function ensureUserHousehold(database: DatabaseClient, userId: string) {
       .select({ userId: householdMember.userId })
       .from(householdMember)
       .where(
-        and(
-          eq(householdMember.householdId, firstHousehold.id),
-          eq(householdMember.role, 'owner'),
-        ),
+        and(eq(householdMember.householdId, firstHousehold.id), eq(householdMember.role, 'owner')),
       )
       .get()
     const role = existingOwner ? ('member' as const) : ('owner' as const)
@@ -137,34 +129,8 @@ export function createHouseholdRoutes(
   database: DatabaseClient,
   auth: AuthInstance,
   appUrl: string,
-  trustedOrigins: readonly string[],
 ) {
   const routes = new Hono<ApiHonoEnvironment>()
-
-  routes.use('*', async (context, next) => {
-    if (
-      context.req.method !== 'GET' &&
-      context.req.method !== 'HEAD' &&
-      context.req.method !== 'OPTIONS'
-    ) {
-      const origin = context.req.header('origin')
-      if (origin) {
-        let requestOrigin: string
-        try {
-          requestOrigin = new URL(origin).origin
-        } catch {
-          return context.json({ error: 'Origine non autorisée.' }, 403)
-        }
-        if (
-          requestOrigin !== origin ||
-          !trustedOrigins.includes(requestOrigin)
-        ) {
-          return context.json({ error: 'Origine non autorisée.' }, 403)
-        }
-      }
-    }
-    await next()
-  })
 
   // Public invitation lookup
   routes.get('/invitations/:token', (context) => {
@@ -223,9 +189,7 @@ export function createHouseholdRoutes(
     if (!parsed.success) {
       return context.json(
         {
-          error:
-            parsed.error.issues[0]?.message ??
-            'Données d’inscription invalides.',
+          error: parsed.error.issues[0]?.message ?? 'Données d’inscription invalides.',
         },
         400,
       )
@@ -255,10 +219,7 @@ export function createHouseholdRoutes(
       .where(eq(user.email, invitation.email))
       .get()
     if (existingEmail) {
-      return context.json(
-        { error: 'Un compte existe déjà avec cette adresse e-mail.' },
-        409,
-      )
+      return context.json({ error: 'Un compte existe déjà avec cette adresse e-mail.' }, 409)
     }
 
     if (parsed.data.username) {
@@ -268,10 +229,7 @@ export function createHouseholdRoutes(
         .where(eq(user.username, parsed.data.username))
         .get()
       if (existingUsername) {
-        return context.json(
-          { error: 'Ce nom d’utilisateur est déjà pris.' },
-          409,
-        )
+        return context.json({ error: 'Ce nom d’utilisateur est déjà pris.' }, 409)
       }
     }
 
@@ -338,10 +296,7 @@ export function createHouseholdRoutes(
   // Authenticated household routes
   routes.get('/', requireSession(auth), (context) => {
     const current = context.get('session')
-    const { household: currentHousehold, role } = ensureUserHousehold(
-      database,
-      current.user.id,
-    )
+    const { household: currentHousehold, role } = ensureUserHousehold(database, current.user.id)
     const now = new Date()
 
     const members = database
@@ -421,10 +376,7 @@ export function createHouseholdRoutes(
       )
     }
 
-    const { household: currentHousehold } = ensureUserHousehold(
-      database,
-      current.user.id,
-    )
+    const { household: currentHousehold } = ensureUserHousehold(database, current.user.id)
     const now = new Date()
     database
       .update(household)
@@ -447,18 +399,13 @@ export function createHouseholdRoutes(
     if (!parsed.success) {
       return context.json(
         {
-          error:
-            parsed.error.issues[0]?.message ??
-            'Données d’invitation invalides.',
+          error: parsed.error.issues[0]?.message ?? 'Données d’invitation invalides.',
         },
         400,
       )
     }
 
-    const { household: currentHousehold } = ensureUserHousehold(
-      database,
-      current.user.id,
-    )
+    const { household: currentHousehold } = ensureUserHousehold(database, current.user.id)
 
     const existingUser = database
       .select({ id: user.id })
@@ -468,8 +415,7 @@ export function createHouseholdRoutes(
     if (existingUser) {
       return context.json(
         {
-          error:
-            'Un compte existe déjà avec cette adresse e-mail dans Quisera.',
+          error: 'Un compte existe déjà avec cette adresse e-mail dans Quisera.',
         },
         409,
       )
@@ -527,10 +473,7 @@ export function createHouseholdRoutes(
   routes.delete('/invitations/:id', requireSession(auth), (context) => {
     const current = context.get('session')
     const invitationId = context.req.param('id')
-    const { household: currentHousehold } = ensureUserHousehold(
-      database,
-      current.user.id,
-    )
+    const { household: currentHousehold } = ensureUserHousehold(database, current.user.id)
 
     const existing = database
       .select({ id: householdInvitation.id })
@@ -560,22 +503,13 @@ export function createHouseholdRoutes(
   routes.delete('/members/:userId', requireSession(auth), (context) => {
     const current = context.get('session')
     const targetUserId = context.req.param('userId')
-    const { household: currentHousehold, role } = ensureUserHousehold(
-      database,
-      current.user.id,
-    )
+    const { household: currentHousehold, role } = ensureUserHousehold(database, current.user.id)
 
     if (role !== 'owner') {
-      return context.json(
-        { error: 'Seul le propriétaire du foyer peut retirer un membre.' },
-        403,
-      )
+      return context.json({ error: 'Seul le propriétaire du foyer peut retirer un membre.' }, 403)
     }
     if (targetUserId === current.user.id) {
-      return context.json(
-        { error: 'Vous ne pouvez pas vous retirer vous-même du foyer.' },
-        400,
-      )
+      return context.json({ error: 'Vous ne pouvez pas vous retirer vous-même du foyer.' }, 400)
     }
 
     const membership = database

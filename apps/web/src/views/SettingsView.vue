@@ -13,14 +13,10 @@ import {
   UserPlus,
   Users,
 } from '@lucide/vue'
+import { TabsContent, TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
 import Button from '@/components/ui/Button.vue'
 import { authClient } from '@/auth/client'
-import {
-  applyTheme,
-  getStoredTheme,
-  themeOptions,
-  type ThemeId,
-} from '@/styles/themes'
+import { applyTheme, getStoredTheme, themeOptions, type ThemeId } from '@/styles/themes'
 import {
   changePassword,
   createHouseholdInvitation,
@@ -41,9 +37,7 @@ const route = useRoute()
 const router = useRouter()
 const session = authClient.useSession()
 
-const activeTab = computed<TabId>(() =>
-  route.query.tab === 'foyer' ? 'foyer' : 'profil',
-)
+const activeTab = computed<TabId>(() => (route.query['tab'] === 'foyer' ? 'foyer' : 'profil'))
 
 function switchTab(tab: TabId) {
   void router.replace({ query: { ...route.query, tab } })
@@ -63,9 +57,7 @@ const formEmailPassword = ref('')
 
 const emailChanged = computed(() => {
   if (!profile.value) return false
-  return (
-    formEmail.value.trim().toLowerCase() !== profile.value.email.toLowerCase()
-  )
+  return formEmail.value.trim().toLowerCase() !== profile.value.email.toLowerCase()
 })
 
 // Password state
@@ -124,8 +116,7 @@ async function loadProfile() {
     formEmail.value = data.email
     formEmailPassword.value = ''
   } catch (cause) {
-    profileError.value =
-      cause instanceof Error ? cause.message : 'Profil indisponible.'
+    profileError.value = cause instanceof Error ? cause.message : 'Profil indisponible.'
   } finally {
     profileLoading.value = false
   }
@@ -139,8 +130,7 @@ async function loadHousehold() {
     household.value = data
     householdNameInput.value = data.name
   } catch (cause) {
-    householdError.value =
-      cause instanceof Error ? cause.message : 'Foyer indisponible.'
+    householdError.value = cause instanceof Error ? cause.message : 'Foyer indisponible.'
   } finally {
     householdLoading.value = false
   }
@@ -155,9 +145,7 @@ async function submitProfile() {
       name: formName.value.trim(),
       username: formUsername.value.trim() || null,
       email: formEmail.value.trim(),
-      ...(emailChanged.value
-        ? { currentPassword: formEmailPassword.value }
-        : {}),
+      ...(emailChanged.value ? { currentPassword: formEmailPassword.value } : {}),
     })
     profile.value = updated
     formName.value = updated.name
@@ -168,8 +156,7 @@ async function submitProfile() {
     await session.value.refetch()
     await loadHousehold()
   } catch (cause) {
-    profileError.value =
-      cause instanceof Error ? cause.message : 'Mise à jour impossible.'
+    profileError.value = cause instanceof Error ? cause.message : 'Mise à jour impossible.'
   } finally {
     profileSaving.value = false
   }
@@ -179,8 +166,7 @@ async function submitPassword() {
   passwordError.value = ''
   passwordSuccess.value = ''
   if (newPassword.value.length < 12) {
-    passwordError.value =
-      'Le nouveau mot de passe doit contenir au moins 12 caractères.'
+    passwordError.value = 'Le nouveau mot de passe doit contenir au moins 12 caractères.'
     return
   }
   if (newPassword.value !== confirmPassword.value) {
@@ -201,9 +187,7 @@ async function submitPassword() {
     await loadProfile()
   } catch (cause) {
     passwordError.value =
-      cause instanceof Error
-        ? cause.message
-        : 'Impossible de modifier le mot de passe.'
+      cause instanceof Error ? cause.message : 'Impossible de modifier le mot de passe.'
   } finally {
     passwordSaving.value = false
   }
@@ -221,9 +205,7 @@ async function handleRevokeOtherSessions() {
     profileSuccess.value = 'Les autres sessions ont été déconnectées.'
   } catch (cause) {
     profileError.value =
-      cause instanceof Error
-        ? cause.message
-        : 'Impossible de révoquer les sessions.'
+      cause instanceof Error ? cause.message : 'Impossible de révoquer les sessions.'
   } finally {
     revokingSessions.value = false
   }
@@ -239,8 +221,7 @@ async function submitHouseholdName() {
     if (household.value) household.value.name = updated.name
     householdSuccess.value = 'Le nom du foyer a été mis à jour.'
   } catch (cause) {
-    householdError.value =
-      cause instanceof Error ? cause.message : 'Renommage impossible.'
+    householdError.value = cause instanceof Error ? cause.message : 'Renommage impossible.'
   } finally {
     householdRenaming.value = false
   }
@@ -252,19 +233,17 @@ async function submitInvitation() {
   createdInviteUrl.value = ''
   copiedLink.value = false
   try {
+    const trimmedInvitedName = inviteName.value.trim()
     const result = await createHouseholdInvitation({
       email: inviteEmail.value.trim(),
-      invitedName: inviteName.value.trim() || undefined,
+      ...(trimmedInvitedName ? { invitedName: trimmedInvitedName } : {}),
     })
     createdInviteUrl.value = result.inviteUrl
     inviteEmail.value = ''
     inviteName.value = ''
     await loadHousehold()
   } catch (cause) {
-    inviteError.value =
-      cause instanceof Error
-        ? cause.message
-        : 'Impossible de créer l’invitation.'
+    inviteError.value = cause instanceof Error ? cause.message : 'Impossible de créer l’invitation.'
   } finally {
     inviting.value = false
   }
@@ -291,8 +270,7 @@ async function handleRevokeInvitation(id: string) {
     householdSuccess.value = 'Invitation révoquée.'
     await loadHousehold()
   } catch (cause) {
-    householdError.value =
-      cause instanceof Error ? cause.message : 'Révocation impossible.'
+    householdError.value = cause instanceof Error ? cause.message : 'Révocation impossible.'
   }
 }
 
@@ -311,8 +289,7 @@ async function handleRemoveMember(userId: string, memberName: string) {
     householdSuccess.value = `${memberName} a été retiré du foyer.`
     await loadHousehold()
   } catch (cause) {
-    householdError.value =
-      cause instanceof Error ? cause.message : 'Suppression impossible.'
+    householdError.value = cause instanceof Error ? cause.message : 'Suppression impossible.'
   }
 }
 
@@ -322,37 +299,34 @@ onMounted(() => {
 </script>
 
 <template>
-  <section class="settings" aria-label="Profil et foyer">
-    <div class="settings__tabs" role="tablist" aria-label="Sections du compte">
-      <button
-        type="button"
-        role="tab"
-        :aria-selected="activeTab === 'profil'"
+  <TabsRoot
+    class="settings"
+    aria-label="Profil et foyer"
+    :model-value="activeTab"
+    @update:model-value="(val) => switchTab(val === 'foyer' ? 'foyer' : 'profil')"
+  >
+    <TabsList class="settings__tabs" aria-label="Sections du compte">
+      <TabsTrigger
+        value="profil"
         class="settings__tab"
         :class="{ 'is-active': activeTab === 'profil' }"
-        @click="switchTab('profil')"
       >
         <User :size="18" aria-hidden="true" />
         Mon profil
-      </button>
-      <button
-        type="button"
-        role="tab"
-        :aria-selected="activeTab === 'foyer'"
+      </TabsTrigger>
+      <TabsTrigger
+        value="foyer"
         class="settings__tab"
         :class="{ 'is-active': activeTab === 'foyer' }"
-        @click="switchTab('foyer')"
       >
         <Users :size="18" aria-hidden="true" />
         Mon foyer
-        <span v-if="household" class="settings__tab-count">{{
-          household.members.length
-        }}</span>
-      </button>
-    </div>
+        <span v-if="household" class="settings__tab-count">{{ household.members.length }}</span>
+      </TabsTrigger>
+    </TabsList>
 
     <!-- PROFIL TAB -->
-    <div v-if="activeTab === 'profil'" class="settings__panel" role="tabpanel">
+    <TabsContent value="profil" class="settings__panel">
       <div v-if="profileLoading" class="settings__status" role="status">
         Chargement de votre profil…
       </div>
@@ -382,11 +356,7 @@ onMounted(() => {
             <span class="profile-hero__session-pill">
               <ShieldCheck :size="15" aria-hidden="true" />
               {{ profile.activeSessionsCount }}
-              {{
-                profile.activeSessionsCount > 1
-                  ? 'sessions actives'
-                  : 'session active'
-              }}
+              {{ profile.activeSessionsCount > 1 ? 'sessions actives' : 'session active' }}
             </span>
             <button
               v-if="profile.activeSessionsCount > 1"
@@ -407,35 +377,19 @@ onMounted(() => {
                 <User :size="18" aria-hidden="true" />
                 Informations personnelles
               </h3>
-              <p>
-                Modifiez votre nom, votre identifiant et votre adresse e-mail.
-              </p>
+              <p>Modifiez votre nom, votre identifiant et votre adresse e-mail.</p>
             </div>
 
-            <p
-              v-if="profileError"
-              class="settings__alert settings__alert--error"
-              role="alert"
-            >
+            <p v-if="profileError" class="settings__alert settings__alert--error" role="alert">
               Erreur : {{ profileError }}
             </p>
-            <p
-              v-if="profileSuccess"
-              class="settings__alert settings__alert--success"
-              role="status"
-            >
+            <p v-if="profileSuccess" class="settings__alert settings__alert--success" role="status">
               {{ profileSuccess }}
             </p>
 
             <label class="settings-field">
               <span>Nom d’affichage</span>
-              <input
-                v-model="formName"
-                type="text"
-                required
-                maxlength="80"
-                autocomplete="name"
-              />
+              <input v-model="formName" type="text" required maxlength="80" autocomplete="name" />
             </label>
 
             <label class="settings-field">
@@ -451,25 +405,16 @@ onMounted(() => {
                 />
               </div>
               <small
-                >3 à 30 caractères : lettres minuscules, chiffres, « . », « _ »
-                ou « - ».</small
+                >3 à 30 caractères : lettres minuscules, chiffres, « . », « _ » ou « - ».</small
               >
             </label>
 
             <label class="settings-field">
               <span>Adresse e-mail</span>
-              <input
-                v-model="formEmail"
-                type="email"
-                required
-                autocomplete="email"
-              />
+              <input v-model="formEmail" type="email" required autocomplete="email" />
             </label>
 
-            <label
-              v-if="emailChanged"
-              class="settings-field settings-field--highlight"
-            >
+            <label v-if="emailChanged" class="settings-field settings-field--highlight">
               <span>Mot de passe actuel requis pour changer d’e-mail</span>
               <input
                 v-model="formEmailPassword"
@@ -481,9 +426,7 @@ onMounted(() => {
             </label>
 
             <div class="settings-card__actions">
-              <Button type="submit" :loading="profileSaving"
-                >Enregistrer les modifications</Button
-              >
+              <Button type="submit" :loading="profileSaving">Enregistrer les modifications</Button>
             </div>
           </form>
 
@@ -494,16 +437,12 @@ onMounted(() => {
                 Mot de passe et sécurité
               </h3>
               <p>
-                Choisissez un mot de passe unique d’au moins 12 caractères pour
-                protéger votre compte.
+                Choisissez un mot de passe unique d’au moins 12 caractères pour protéger votre
+                compte.
               </p>
             </div>
 
-            <p
-              v-if="passwordError"
-              class="settings__alert settings__alert--error"
-              role="alert"
-            >
+            <p v-if="passwordError" class="settings__alert settings__alert--error" role="alert">
               Erreur : {{ passwordError }}
             </p>
             <p
@@ -561,10 +500,7 @@ onMounted(() => {
             </label>
 
             <div class="settings-card__actions">
-              <Button
-                type="submit"
-                variant="secondary"
-                :loading="passwordSaving"
+              <Button type="submit" variant="secondary" :loading="passwordSaving"
                 >Mettre à jour le mot de passe</Button
               >
             </div>
@@ -578,16 +514,12 @@ onMounted(() => {
               Apparence et thèmes
             </h3>
             <p>
-              Choisissez l’ambiance visuelle de Quisera. Tous les thèmes
-              respectent les contrastes WCAG AA.
+              Choisissez l’ambiance visuelle de Quisera. Tous les thèmes respectent les contrastes
+              WCAG AA.
             </p>
           </div>
 
-          <div
-            class="theme-grid"
-            role="radiogroup"
-            aria-label="Choisir un thème"
-          >
+          <div class="theme-grid" role="radiogroup" aria-label="Choisir un thème">
             <button
               v-for="option in themeOptions"
               :key="option.id"
@@ -605,19 +537,13 @@ onMounted(() => {
                     option.mode === 'dark' ? 'Sombre' : 'Clair'
                   }}</span>
                 </div>
-                <span
-                  v-if="currentTheme === option.id"
-                  class="theme-card__active"
-                >
+                <span v-if="currentTheme === option.id" class="theme-card__active">
                   <Check :size="14" aria-hidden="true" />
                   Actif
                 </span>
               </div>
               <p class="theme-card__desc">{{ option.description }}</p>
-              <div
-                class="theme-card__swatches"
-                :aria-label="`Palette du thème ${option.name}`"
-              >
+              <div class="theme-card__swatches" :aria-label="`Palette du thème ${option.name}`">
                 <span
                   v-for="swatch in option.swatches"
                   :key="swatch.hex"
@@ -630,32 +556,21 @@ onMounted(() => {
           </div>
         </section>
       </template>
-    </div>
+    </TabsContent>
 
     <!-- FOYER TAB -->
-    <div v-else class="settings__panel" role="tabpanel">
+    <TabsContent value="foyer" class="settings__panel">
       <div v-if="householdLoading" class="settings__status" role="status">
         Chargement de votre foyer…
       </div>
       <template v-else-if="household">
         <header class="household-hero">
-          <form
-            class="household-hero__form"
-            @submit.prevent="submitHouseholdName"
-          >
+          <form class="household-hero__form" @submit.prevent="submitHouseholdName">
             <label class="household-hero__label">
               <span>Nom du foyer</span>
               <div class="household-hero__input-row">
-                <input
-                  v-model="householdNameInput"
-                  type="text"
-                  required
-                  maxlength="80"
-                />
-                <Button
-                  type="submit"
-                  variant="secondary"
-                  :loading="householdRenaming"
+                <input v-model="householdNameInput" type="text" required maxlength="80" />
+                <Button type="submit" variant="secondary" :loading="householdRenaming"
                   >Renommer</Button
                 >
               </div>
@@ -679,18 +594,10 @@ onMounted(() => {
           </div>
         </header>
 
-        <p
-          v-if="householdError"
-          class="settings__alert settings__alert--error"
-          role="alert"
-        >
+        <p v-if="householdError" class="settings__alert settings__alert--error" role="alert">
           Erreur : {{ householdError }}
         </p>
-        <p
-          v-if="householdSuccess"
-          class="settings__alert settings__alert--success"
-          role="status"
-        >
+        <p v-if="householdSuccess" class="settings__alert settings__alert--success" role="status">
           {{ householdSuccess }}
         </p>
 
@@ -701,18 +608,11 @@ onMounted(() => {
                 <Users :size="18" aria-hidden="true" />
                 Membres du foyer
               </h3>
-              <p>
-                Les membres partagent le même planning et la bibliothèque de
-                recettes.
-              </p>
+              <p>Les membres partagent le même planning et la bibliothèque de recettes.</p>
             </div>
 
             <ul class="member-list">
-              <li
-                v-for="member in household.members"
-                :key="member.id"
-                class="member-card"
-              >
+              <li v-for="member in household.members" :key="member.id" class="member-card">
                 <span
                   class="member-card__avatar"
                   :class="{
@@ -727,16 +627,10 @@ onMounted(() => {
                     <span v-if="member.username" class="member-card__handle"
                       >@{{ member.username }}</span
                     >
-                    <span v-if="member.isCurrentUser" class="member-card__you"
-                      >Vous</span
-                    >
-                    <span
-                      class="member-card__role"
-                      :class="`member-card__role--${member.role}`"
-                      >{{
-                        member.role === 'owner' ? 'Propriétaire' : 'Membre'
-                      }}</span
-                    >
+                    <span v-if="member.isCurrentUser" class="member-card__you">Vous</span>
+                    <span class="member-card__role" :class="`member-card__role--${member.role}`">{{
+                      member.role === 'owner' ? 'Propriétaire' : 'Membre'
+                    }}</span>
                   </div>
                   <p class="member-card__meta">
                     {{ member.email }} · Rejoint le
@@ -744,10 +638,7 @@ onMounted(() => {
                   </p>
                 </div>
                 <button
-                  v-if="
-                    household.currentUserRole === 'owner' &&
-                    !member.isCurrentUser
-                  "
+                  v-if="household.currentUserRole === 'owner' && !member.isCurrentUser"
                   type="button"
                   class="member-card__remove"
                   :aria-label="`Retirer ${member.name} du foyer`"
@@ -767,16 +658,12 @@ onMounted(() => {
                 Inviter une personne
               </h3>
               <p>
-                Générez un lien d’invitation sécurisé valable 7 jours pour
-                permettre à un proche de rejoindre votre foyer.
+                Générez un lien d’invitation sécurisé valable 7 jours pour permettre à un proche de
+                rejoindre votre foyer.
               </p>
             </div>
 
-            <p
-              v-if="inviteError"
-              class="settings__alert settings__alert--error"
-              role="alert"
-            >
+            <p v-if="inviteError" class="settings__alert settings__alert--error" role="alert">
               Erreur : {{ inviteError }}
             </p>
 
@@ -793,12 +680,7 @@ onMounted(() => {
 
               <label class="settings-field">
                 <span>Prénom ou nom (facultatif)</span>
-                <input
-                  v-model="inviteName"
-                  type="text"
-                  maxlength="80"
-                  placeholder="ex. Camille"
-                />
+                <input v-model="inviteName" type="text" maxlength="80" placeholder="ex. Camille" />
               </label>
 
               <div class="settings-card__actions">
@@ -819,38 +701,25 @@ onMounted(() => {
                   aria-label="Lien d’invitation"
                   @focus="($event.target as HTMLInputElement).select()"
                 />
-                <Button
-                  type="button"
-                  variant="secondary"
-                  @click="copyInviteUrl"
-                >
+                <Button type="button" variant="secondary" @click="copyInviteUrl">
                   <Check v-if="copiedLink" :size="16" aria-hidden="true" />
                   <Copy v-else :size="16" aria-hidden="true" />
                   {{ copiedLink ? 'Copié !' : 'Copier' }}
                 </Button>
               </div>
               <small
-                >Ce lien est à usage unique et expire dans 7 jours.
-                Transmettez-le directement à votre proche.</small
+                >Ce lien est à usage unique et expire dans 7 jours. Transmettez-le directement à
+                votre proche.</small
               >
             </div>
 
-            <div
-              v-if="household.invitations.length"
-              class="pending-invitations"
-            >
+            <div v-if="household.invitations.length" class="pending-invitations">
               <h4>Invitations en attente</h4>
               <ul>
-                <li
-                  v-for="inv in household.invitations"
-                  :key="inv.id"
-                  class="pending-invitation"
-                >
+                <li v-for="inv in household.invitations" :key="inv.id" class="pending-invitation">
                   <div>
                     <strong>{{
-                      inv.invitedName
-                        ? `${inv.invitedName} · ${inv.email}`
-                        : inv.email
+                      inv.invitedName ? `${inv.invitedName} · ${inv.email}` : inv.email
                     }}</strong>
                     <small
                       >Invité par {{ inv.invitedByName }} · Expire le
@@ -870,11 +739,11 @@ onMounted(() => {
           </section>
         </div>
       </template>
-    </div>
-  </section>
+    </TabsContent>
+  </TabsRoot>
 </template>
 
-<style scoped>
+<style scoped lang="scss">
 .settings {
   display: flex;
   flex-direction: column;

@@ -42,37 +42,8 @@ const changePasswordSchema = z.object({
   revokeOtherSessions: z.boolean().optional().default(false),
 })
 
-export function createProfileRoutes(
-  database: DatabaseClient,
-  auth: AuthInstance,
-  trustedOrigins: readonly string[],
-) {
+export function createProfileRoutes(database: DatabaseClient, auth: AuthInstance) {
   const routes = new Hono<ApiHonoEnvironment>()
-
-  routes.use('*', async (context, next) => {
-    if (
-      context.req.method !== 'GET' &&
-      context.req.method !== 'HEAD' &&
-      context.req.method !== 'OPTIONS'
-    ) {
-      const origin = context.req.header('origin')
-      if (origin) {
-        let requestOrigin: string
-        try {
-          requestOrigin = new URL(origin).origin
-        } catch {
-          return context.json({ error: 'Origine non autorisée.' }, 403)
-        }
-        if (
-          requestOrigin !== origin ||
-          !trustedOrigins.includes(requestOrigin)
-        ) {
-          return context.json({ error: 'Origine non autorisée.' }, 403)
-        }
-      }
-    }
-    await next()
-  })
 
   routes.use('*', requireSession(auth))
 
@@ -93,11 +64,12 @@ export function createProfileRoutes(
 
     if (!record) return context.json({ error: 'Utilisateur introuvable.' }, 404)
 
-    const [{ total }] = database
+    const sessionCountRow = database
       .select({ total: sql<number>`count(*)` })
       .from(session)
       .where(eq(session.userId, current.user.id))
-      .all()
+      .get()
+    const total = sessionCountRow?.total ?? 0
 
     return context.json({
       profile: {
@@ -119,8 +91,7 @@ export function createProfileRoutes(
     if (!parsed.success) {
       return context.json(
         {
-          error:
-            parsed.error.issues[0]?.message ?? 'Données de profil invalides.',
+          error: parsed.error.issues[0]?.message ?? 'Données de profil invalides.',
         },
         400,
       )
@@ -136,8 +107,7 @@ export function createProfileRoutes(
       .where(eq(user.id, current.user.id))
       .get()
 
-    if (!existing)
-      return context.json({ error: 'Utilisateur introuvable.' }, 404)
+    if (!existing) return context.json({ error: 'Utilisateur introuvable.' }, 404)
 
     const { name, username, email, currentPassword } = parsed.data
     const emailChanged = email !== existing.email.toLowerCase()
@@ -146,8 +116,7 @@ export function createProfileRoutes(
       if (!currentPassword) {
         return context.json(
           {
-            error:
-              'Votre mot de passe actuel est requis pour modifier votre adresse e-mail.',
+            error: 'Votre mot de passe actuel est requis pour modifier votre adresse e-mail.',
           },
           400,
         )
@@ -155,18 +124,10 @@ export function createProfileRoutes(
       const credentialAccount = database
         .select({ password: account.password })
         .from(account)
-        .where(
-          and(
-            eq(account.userId, current.user.id),
-            eq(account.providerId, 'credential'),
-          ),
-        )
+        .where(and(eq(account.userId, current.user.id), eq(account.providerId, 'credential')))
         .get()
       if (!credentialAccount?.password) {
-        return context.json(
-          { error: 'Vérification du mot de passe impossible.' },
-          400,
-        )
+        return context.json({ error: 'Vérification du mot de passe impossible.' }, 400)
       }
       const authContext = await auth.$context
       const valid = await authContext.password.verify({
@@ -183,10 +144,7 @@ export function createProfileRoutes(
         .where(and(eq(user.email, email), ne(user.id, current.user.id)))
         .get()
       if (emailConflict) {
-        return context.json(
-          { error: 'Cette adresse e-mail est déjà utilisée.' },
-          409,
-        )
+        return context.json({ error: 'Cette adresse e-mail est déjà utilisée.' }, 409)
       }
     }
 
@@ -197,10 +155,7 @@ export function createProfileRoutes(
         .where(and(eq(user.username, username), ne(user.id, current.user.id)))
         .get()
       if (usernameConflict) {
-        return context.json(
-          { error: 'Ce nom d’utilisateur est déjà pris.' },
-          409,
-        )
+        return context.json({ error: 'Ce nom d’utilisateur est déjà pris.' }, 409)
       }
     }
 
@@ -229,11 +184,12 @@ export function createProfileRoutes(
       .where(eq(user.id, current.user.id))
       .get()!
 
-    const [{ total }] = database
+    const sessionCountRow = database
       .select({ total: sql<number>`count(*)` })
       .from(session)
       .where(eq(session.userId, current.user.id))
-      .all()
+      .get()
+    const total = sessionCountRow?.total ?? 0
 
     return context.json({
       profile: {
@@ -270,10 +226,7 @@ export function createProfileRoutes(
         headers: context.req.raw.headers,
       })
     } catch {
-      return context.json(
-        { error: 'Mot de passe actuel incorrect ou changement refusé.' },
-        400,
-      )
+      return context.json({ error: 'Mot de passe actuel incorrect ou changement refusé.' }, 400)
     }
 
     return context.json({ ok: true })
@@ -283,12 +236,7 @@ export function createProfileRoutes(
     const current = context.get('session')
     database
       .delete(session)
-      .where(
-        and(
-          eq(session.userId, current.user.id),
-          ne(session.id, current.session.id),
-        ),
-      )
+      .where(and(eq(session.userId, current.user.id), ne(session.id, current.session.id)))
       .run()
 
     return context.json({ ok: true, activeSessionsCount: 1 })

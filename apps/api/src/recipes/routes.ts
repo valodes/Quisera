@@ -6,17 +6,7 @@ import {
   type RecipeSummary,
   type RecipeWriteInput,
 } from '@quisera/shared'
-import {
-  and,
-  asc,
-  count,
-  desc,
-  eq,
-  exists,
-  inArray,
-  or,
-  sql,
-} from 'drizzle-orm'
+import { and, asc, count, desc, eq, exists, inArray, or, sql } from 'drizzle-orm'
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -48,15 +38,12 @@ const querySchema = z.object({
 const photoContentTypes = {
   'image/jpeg': {
     extension: 'jpg',
-    matches: (data: Uint8Array) =>
-      data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff,
+    matches: (data: Uint8Array) => data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff,
   },
   'image/png': {
     extension: 'png',
     matches: (data: Uint8Array) =>
-      [137, 80, 78, 71, 13, 10, 26, 10].every(
-        (byte, index) => data[index] === byte,
-      ),
+      [137, 80, 78, 71, 13, 10, 26, 10].every((byte, index) => data[index] === byte),
   },
   'image/webp': {
     extension: 'webp',
@@ -107,8 +94,7 @@ async function parseRecipeBody(request: Request): Promise<ParsedRecipeBody> {
       payload = JSON.parse(String(form.get('recipe') ?? ''))
       const candidate = form.get('image')
       if (candidate instanceof File) file = candidate
-      else if (candidate !== null)
-        return { error: 'Fichier photo invalide.' as const }
+      else if (candidate !== null) return { error: 'Fichier photo invalide.' as const }
     } else {
       payload = await request.json()
     }
@@ -138,8 +124,7 @@ async function parseRecipeBody(request: Request): Promise<ParsedRecipeBody> {
       }
     }
     const rule = photoContentTypes[file.type as keyof typeof photoContentTypes]
-    if (!rule)
-      return { error: 'Format photo accepté : JPEG, PNG ou WebP.' as const }
+    if (!rule) return { error: 'Format photo accepté : JPEG, PNG ou WebP.' as const }
     const bytes = new Uint8Array(await file.arrayBuffer())
     if (!rule.matches(bytes)) {
       return {
@@ -201,12 +186,7 @@ function withRecipeFilters(
         database
           .select({ value: sql`1` })
           .from(recipeFavorite)
-          .where(
-            and(
-              eq(recipeFavorite.recipeId, recipe.id),
-              eq(recipeFavorite.userId, userId),
-            ),
-          ),
+          .where(and(eq(recipeFavorite.recipeId, recipe.id), eq(recipeFavorite.userId, userId))),
       ),
     )
   }
@@ -223,23 +203,14 @@ function withRecipeFilters(
 }
 
 function listOrder(sort: z.infer<typeof querySchema>['sort']) {
-  if (sort === 'title')
-    return [asc(sql`lower(${recipe.title})`), asc(recipe.id)]
+  if (sort === 'title') return [asc(sql`lower(${recipe.title})`), asc(recipe.id)]
   if (sort === 'time') {
-    return [
-      asc(sql`${recipe.totalMinutes} IS NULL`),
-      asc(recipe.totalMinutes),
-      asc(recipe.id),
-    ]
+    return [asc(sql`${recipe.totalMinutes} IS NULL`), asc(recipe.totalMinutes), asc(recipe.id)]
   }
   return [desc(recipe.createdAt), desc(recipe.id)]
 }
 
-function readDecorations(
-  database: DatabaseClient,
-  recipeIds: string[],
-  userId: string,
-) {
+function readDecorations(database: DatabaseClient, recipeIds: string[], userId: string) {
   const result = new Map<string, Decorations>()
   for (const id of recipeIds) {
     result.set(id, { category: null, tags: [], metrics: [], isFavorite: false })
@@ -282,12 +253,7 @@ function readDecorations(
   const favoriteRows = database
     .select({ recipeId: recipeFavorite.recipeId })
     .from(recipeFavorite)
-    .where(
-      and(
-        eq(recipeFavorite.userId, userId),
-        inArray(recipeFavorite.recipeId, recipeIds),
-      ),
-    )
+    .where(and(eq(recipeFavorite.userId, userId), inArray(recipeFavorite.recipeId, recipeIds)))
     .all()
   for (const favorite of favoriteRows) {
     const value = result.get(favorite.recipeId)
@@ -297,10 +263,7 @@ function readDecorations(
   return result
 }
 
-function toSummary(
-  row: typeof recipe.$inferSelect,
-  decorations: Decorations,
-): RecipeSummary {
+function toSummary(row: typeof recipe.$inferSelect, decorations: Decorations): RecipeSummary {
   return {
     id: row.id,
     source: row.source,
@@ -308,8 +271,7 @@ function toSummary(
     description: row.description,
     imageUrl: row.photoKey ? `/api/recipes/${row.id}/photo` : row.photoUrl,
     thumbnailUrl:
-      row.photoThumbnailUrl ??
-      (row.photoKey ? `/api/recipes/${row.id}/photo` : row.photoUrl),
+      row.photoThumbnailUrl ?? (row.photoKey ? `/api/recipes/${row.id}/photo` : row.photoUrl),
     totalMinutes: row.totalMinutes,
     difficulty: row.difficulty,
     category: decorations.category,
@@ -342,14 +304,11 @@ function listRecipes(
 ): RecipeListResponse {
   const where = withRecipeFilters(database, userId, filters, favoritesOnly)
   const total = where
-    ? (database.select({ total: count() }).from(recipe).where(where).get()
-        ?.total ?? 0)
+    ? (database.select({ total: count() }).from(recipe).where(where).get()?.total ?? 0)
     : (database.select({ total: count() }).from(recipe).get()?.total ?? 0)
   const pageSize = Math.min(filters.pageSize, 50)
   const offset = (filters.page - 1) * pageSize
-  const query = where
-    ? database.select().from(recipe).where(where)
-    : database.select().from(recipe)
+  const query = where ? database.select().from(recipe).where(where) : database.select().from(recipe)
   const rows = query
     .orderBy(...listOrder(filters.sort))
     .limit(pageSize)
@@ -368,11 +327,7 @@ function readRecipeDetail(
   recipeId: string,
   userId: string,
 ): RecipeDetail | undefined {
-  const row = database
-    .select()
-    .from(recipe)
-    .where(eq(recipe.id, recipeId))
-    .get()
+  const row = database.select().from(recipe).where(eq(recipe.id, recipeId)).get()
   if (!row) return undefined
   const summary = readRecipeSummaries(database, [row], userId)[0]!
   const ingredients = database
@@ -418,9 +373,7 @@ function addRecipeContent(
   }
 
   const labels = [
-    ...(input.category
-      ? [{ kind: 'category' as const, name: input.category }]
-      : []),
+    ...(input.category ? [{ kind: 'category' as const, name: input.category }] : []),
     ...input.tags.map((name) => ({ kind: 'tag' as const, name })),
   ]
   const seen = new Set<string>()
@@ -437,12 +390,7 @@ function addRecipeContent(
     const stored = transaction
       .select({ id: recipeTag.id })
       .from(recipeTag)
-      .where(
-        and(
-          eq(recipeTag.kind, label.kind),
-          eq(recipeTag.normalizedName, normalizedName),
-        ),
-      )
+      .where(and(eq(recipeTag.kind, label.kind), eq(recipeTag.normalizedName, normalizedName)))
       .get()
     if (stored) {
       transaction
@@ -466,42 +414,18 @@ export function createRecipeRoutes(
   database: DatabaseClient,
   auth: Parameters<typeof requireSession>[0],
   photoDirectory: string,
-  trustedOrigins: readonly string[],
 ) {
   const router = new Hono<ApiHonoEnvironment>()
-  router.use('*', async (context, next) => {
-    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(context.req.method)) {
-      const origin = context.req.header('origin')
-      if (origin) {
-        let requestOrigin: string
-        try {
-          requestOrigin = new URL(origin).origin
-        } catch {
-          return context.json({ error: 'Origine non autorisée.' }, 403)
-        }
-        if (!trustedOrigins.includes(requestOrigin)) {
-          return context.json({ error: 'Origine non autorisée.' }, 403)
-        }
-      }
-    }
-    await next()
-  })
   router.use('*', requireSession(auth))
 
   const list =
-    (favoritesOnly: boolean) =>
-    async (context: import('hono').Context<ApiHonoEnvironment>) => {
+    (favoritesOnly: boolean) => async (context: import('hono').Context<ApiHonoEnvironment>) => {
       const parsed = querySchema.safeParse(context.req.query())
       if (!parsed.success) {
         return errorResponse(context, 'Paramètres de recherche invalides.', 400)
       }
       return context.json(
-        listRecipes(
-          database,
-          context.get('session').user.id,
-          parsed.data,
-          favoritesOnly,
-        ),
+        listRecipes(database, context.get('session').user.id, parsed.data, favoritesOnly),
       )
     }
 
@@ -529,11 +453,7 @@ export function createRecipeRoutes(
   router.post('/', async (context) => {
     const body = await parseRecipeBody(context.req.raw)
     if ('error' in body) {
-      return errorResponse(
-        context,
-        body.error,
-        'status' in body && body.status === 413 ? 413 : 400,
-      )
+      return errorResponse(context, body.error, 'status' in body && body.status === 413 ? 413 : 400)
     }
     const id = randomUUID()
     let storedFile = false
@@ -569,20 +489,17 @@ export function createRecipeRoutes(
       if (storedFile) await removePhoto(photoDirectory, body.photo?.key)
       return errorResponse(context, 'Impossible d’enregistrer la recette.', 500)
     }
-    return context.json(
-      readRecipeDetail(database, id, context.get('session').user.id),
-      201,
-    )
+    return context.json(readRecipeDetail(database, id, context.get('session').user.id), 201)
   })
 
   router.post('/:recipeId/favorite', (context) => {
     const recipeId = context.req.param('recipeId')
-    const exists = database
+    const existingRecipe = database
       .select({ id: recipe.id })
       .from(recipe)
       .where(eq(recipe.id, recipeId))
       .get()
-    if (!exists) return context.notFound()
+    if (!existingRecipe) return context.notFound()
     database
       .insert(recipeFavorite)
       .values({
@@ -619,20 +536,12 @@ export function createRecipeRoutes(
 
   router.put('/:recipeId', async (context) => {
     const id = context.req.param('recipeId')
-    const existing = database
-      .select()
-      .from(recipe)
-      .where(eq(recipe.id, id))
-      .get()
+    const existing = database.select().from(recipe).where(eq(recipe.id, id)).get()
     if (!existing || existing.source !== 'house') return context.notFound()
 
     const body = await parseRecipeBody(context.req.raw)
     if ('error' in body) {
-      return errorResponse(
-        context,
-        body.error,
-        'status' in body && body.status === 413 ? 413 : 400,
-      )
+      return errorResponse(context, body.error, 'status' in body && body.status === 413 ? 413 : 400)
     }
     const oldPhotoKey = existing.photoKey
     let storedFile = false
@@ -659,26 +568,17 @@ export function createRecipeRoutes(
           })
           .where(and(eq(recipe.id, id), eq(recipe.source, 'house')))
           .run()
-        transaction
-          .delete(recipeIngredient)
-          .where(eq(recipeIngredient.recipeId, id))
-          .run()
+        transaction.delete(recipeIngredient).where(eq(recipeIngredient.recipeId, id)).run()
         transaction.delete(recipeStep).where(eq(recipeStep.recipeId, id)).run()
-        transaction
-          .delete(recipeTagAssignment)
-          .where(eq(recipeTagAssignment.recipeId, id))
-          .run()
+        transaction.delete(recipeTagAssignment).where(eq(recipeTagAssignment.recipeId, id)).run()
         addRecipeContent(transaction, id, body.data)
       })
     } catch {
       if (storedFile) await removePhoto(photoDirectory, body.photo?.key)
       return errorResponse(context, 'Impossible de modifier la recette.', 500)
     }
-    if (body.photo && oldPhotoKey)
-      await removePhoto(photoDirectory, oldPhotoKey)
-    return context.json(
-      readRecipeDetail(database, id, context.get('session').user.id),
-    )
+    if (body.photo && oldPhotoKey) await removePhoto(photoDirectory, oldPhotoKey)
+    return context.json(readRecipeDetail(database, id, context.get('session').user.id))
   })
 
   router.delete('/:recipeId', async (context) => {
@@ -695,10 +595,7 @@ export function createRecipeRoutes(
       .where(eq(plannedMeal.homeRecipeId, id))
       .get()
     if (plannedUse) {
-      return context.json(
-        { error: 'Cette recette est utilisée dans le planning.' },
-        409,
-      )
+      return context.json({ error: 'Cette recette est utilisée dans le planning.' }, 409)
     }
     database.delete(recipe).where(eq(recipe.id, id)).run()
     await removePhoto(photoDirectory, existing.photoKey)

@@ -1,16 +1,14 @@
 import type { HttpBindings } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { createMiddleware } from 'hono/factory'
+import { HTTPException } from 'hono/http-exception'
 import { Hono } from 'hono'
 import type { AuthInstance, AuthSession } from './auth.js'
 import type { AppEnvironment } from './config/env.js'
 import type { DatabaseConnection } from './db/connection.js'
 import { createRecipeRoutes } from './recipes/routes.js'
 import { createQuitoqueClient } from './quitoque/client.js'
-import {
-  createPlanningRoutes,
-  type QuitoquePlanningClient,
-} from './planning/routes.js'
+import { createPlanningRoutes, type QuitoquePlanningClient } from './planning/routes.js'
 import { createProfileRoutes } from './profile/routes.js'
 import { createHouseholdRoutes } from './household/routes.js'
 import { createQuitoqueBoxClient } from './quitoque/box-client.js'
@@ -41,18 +39,17 @@ export function requireSession(auth: AuthInstance) {
     }
     context.set('session', session)
     await next()
+    return
   })
 }
 
-export function createApp({
-  auth,
-  database,
-  environment,
-  quitoquePlanningClient,
-}: Dependencies) {
+export function createApp({ auth, database, environment, quitoquePlanningClient }: Dependencies) {
   const app = new Hono<ApiHonoEnvironment>()
 
-  app.onError((_error, context) => {
+  app.onError((error, context) => {
+    if (error instanceof HTTPException) {
+      return error.getResponse()
+    }
     console.error('Unhandled API request error.')
     return context.json({ error: 'Une erreur est survenue.' }, 500)
   })
@@ -71,20 +68,27 @@ export function createApp({
     await next()
   })
 
-  app.use('/api/auth/*', async (context, next) => {
-    const origin = context.req.header('origin')
-    if (origin) {
-      let requestOrigin: string
-      try {
-        requestOrigin = new URL(origin).origin
-      } catch {
-        return context.json({ error: 'Origine non autorisée.' }, 403)
-      }
-      if (!environment.TRUSTED_ORIGINS.includes(requestOrigin)) {
-        return context.json({ error: 'Origine non autorisée.' }, 403)
+  app.use('/api/*', async (context, next) => {
+    if (
+      context.req.method !== 'GET' &&
+      context.req.method !== 'HEAD' &&
+      context.req.method !== 'OPTIONS'
+    ) {
+      const origin = context.req.header('origin')
+      if (origin) {
+        let requestOrigin: string
+        try {
+          requestOrigin = new URL(origin).origin
+        } catch {
+          return context.json({ error: 'Origine non autorisée.' }, 403)
+        }
+        if (requestOrigin !== origin || !environment.TRUSTED_ORIGINS.includes(requestOrigin)) {
+          return context.json({ error: 'Origine non autorisée.' }, 403)
+        }
       }
     }
     await next()
+    return
   })
 
   app.all('/api/auth/admin', (context) => context.notFound())
@@ -112,12 +116,7 @@ export function createApp({
 
   app.route(
     '/api/recipes',
-    createRecipeRoutes(
-      database.client,
-      auth,
-      environment.RECIPE_UPLOAD_DIR,
-      environment.TRUSTED_ORIGINS,
-    ),
+    createRecipeRoutes(database.client, auth, environment.RECIPE_UPLOAD_DIR),
   )
 
   app.route(
@@ -125,7 +124,6 @@ export function createApp({
     createPlanningRoutes(
       database.client,
       auth,
-      environment.TRUSTED_ORIGINS,
       quitoquePlanningClient ??
         (environment.QUITOQUE_MAIL && environment.QUITOQUE_MAIL_PASSWORD
           ? createQuitoqueClient({
@@ -136,26 +134,14 @@ export function createApp({
     ),
   )
 
-  app.route(
-    '/api/profile',
-    createProfileRoutes(database.client, auth, environment.TRUSTED_ORIGINS),
-  )
+  app.route('/api/profile', createProfileRoutes(database.client, auth))
 
-  app.route(
-    '/api/household',
-    createHouseholdRoutes(
-      database.client,
-      auth,
-      environment.APP_URL,
-      environment.TRUSTED_ORIGINS,
-    ),
-  )
+  app.route('/api/household', createHouseholdRoutes(database.client, auth, environment.APP_URL))
 
   app.route(
     '/api/planification',
     createPlanificationRoutes(
       auth,
-      environment.TRUSTED_ORIGINS,
       environment.QUITOQUE_MAIL && environment.QUITOQUE_MAIL_PASSWORD
         ? createQuitoqueBoxClient({
             email: environment.QUITOQUE_MAIL,
