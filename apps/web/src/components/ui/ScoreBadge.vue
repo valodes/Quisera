@@ -18,9 +18,7 @@ const normalizedGrade = computed(() => {
   return value && /^[A-E]$/.test(value) ? value : null
 })
 
-const label = computed(() =>
-  props.kind === 'nutri' ? 'Nutri-Score' : 'Score carbone',
-)
+const label = computed(() => (props.kind === 'nutri' ? 'Nutri-Score' : 'Score carbone'))
 
 const ariaLabel = computed(() =>
   normalizedGrade.value
@@ -69,7 +67,52 @@ const ariaLabel = computed(() =>
   </span>
 </template>
 
-<style scoped>
+<style scoped lang="scss">
+@use 'sass:list';
+
+$score-palettes: (
+  'nutri-a': (
+    #038141,
+    #f7faf7,
+  ),
+  'nutri-b': (
+    #85bb2f,
+    #173d2c,
+  ),
+  'nutri-c': (
+    #fecb02,
+    #173d2c,
+  ),
+  'nutri-d': (
+    #ee8100,
+    #173d2c,
+  ),
+  'nutri-e': (
+    #e63e11,
+    #fff6f2,
+  ),
+  'eco-a': (
+    #1e8f4e,
+    #f7faf7,
+  ),
+  'eco-b': (
+    #2ecc71,
+    #173d2c,
+  ),
+  'eco-c': (
+    #f5c518,
+    #173d2c,
+  ),
+  'eco-d': (
+    #ef7d1a,
+    #173d2c,
+  ),
+  'eco-e': (
+    #e63e11,
+    #fff6f2,
+  ),
+);
+
 .score-badge {
   display: inline-flex;
   align-items: center;
@@ -80,112 +123,85 @@ const ariaLabel = computed(() =>
   border: 1px solid var(--q-leaf);
   line-height: 1;
   vertical-align: middle;
-}
-.score-badge--unavailable {
-  padding: 0.2rem 0.45rem;
-  font-size: var(--q-type-metadata);
-  font-weight: 600;
-  color: var(--q-leaf);
-  border-color: transparent;
-}
-.score-badge__prefix {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  font-family: var(--q-font-display);
-  font-size: 0.6rem;
-  font-weight: 850;
-  letter-spacing: 0.04em;
-  color: var(--q-forest);
-}
-.score-badge__scale {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 3px;
-  overflow: visible;
-}
-.score-badge__cell {
-  display: inline-grid;
-  place-items: center;
-  width: 14px;
-  height: 16px;
-  font-family: var(--q-font-display);
-  font-size: 0.62rem;
-  font-weight: 800;
-  opacity: 0.55;
-  transition: transform 120ms ease;
-}
-.score-badge__cell:first-child {
-  border-radius: 3px 0 0 3px;
-}
-.score-badge__cell:last-child {
-  border-radius: 0 3px 3px 0;
-}
-.score-badge__cell.is-active {
-  position: relative;
-  z-index: 1;
-  width: 19px;
-  height: 20px;
-  margin-block: -2px;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: 900;
-  opacity: 1;
-  box-shadow: 0 0 0 1.5px var(--q-peach);
-}
 
-/* Official Nutri-Score colors */
-.score-badge__cell--nutri-a {
-  background: #038141;
-  color: #f7faf7;
-}
-.score-badge__cell--nutri-b {
-  background: #85bb2f;
-  color: #173d2c;
-}
-.score-badge__cell--nutri-c {
-  background: #fecb02;
-  color: #173d2c;
-}
-.score-badge__cell--nutri-d {
-  background: #ee8100;
-  color: #173d2c;
-}
-.score-badge__cell--nutri-e {
-  background: #e63e11;
-  color: #fff6f2;
-}
+  &--unavailable {
+    padding: 0.2rem 0.45rem;
+    font-size: var(--q-type-metadata);
+    font-weight: 600;
+    color: var(--q-leaf);
+    border-color: transparent;
+  }
 
-/* Official Eco-Score colors */
-.score-badge__cell--eco-a {
-  background: #1e8f4e;
-  color: #f7faf7;
-}
-.score-badge__cell--eco-b {
-  background: #2ecc71;
-  color: #173d2c;
-}
-.score-badge__cell--eco-c {
-  background: #f5c518;
-  color: #173d2c;
-}
-.score-badge__cell--eco-d {
-  background: #ef7d1a;
-  color: #173d2c;
-}
-.score-badge__cell--eco-e {
-  background: #e63e11;
-  color: #fff6f2;
-}
+  &__prefix {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    font-family: var(--q-font-display);
+    font-size: 0.6rem;
+    font-weight: 850;
+    letter-spacing: 0.04em;
+    color: var(--q-forest);
+  }
 
-.score-badge--compact .score-badge__cell {
-  width: 12px;
-  height: 15px;
-  font-size: 0.58rem;
-}
-.score-badge--compact .score-badge__cell.is-active {
-  width: 17px;
-  height: 19px;
-  font-size: 0.72rem;
+  &__scale {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 3px;
+    overflow: visible;
+  }
+
+  &__cell {
+    display: inline-grid;
+    place-items: center;
+    width: 14px;
+    height: 16px;
+    font-family: var(--q-font-display);
+    font-size: 0.62rem;
+    font-weight: 800;
+    opacity: 0.55;
+    transition: transform 120ms ease;
+
+    &:first-child {
+      border-radius: 3px 0 0 3px;
+    }
+
+    &:last-child {
+      border-radius: 0 3px 3px 0;
+    }
+
+    &.is-active {
+      position: relative;
+      z-index: 1;
+      width: 19px;
+      height: 20px;
+      margin-block: -2px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 900;
+      opacity: 1;
+      box-shadow: 0 0 0 1.5px var(--q-peach);
+    }
+
+    @each $grade, $colors in $score-palettes {
+      &--#{$grade} {
+        background: list.nth($colors, 1);
+        color: list.nth($colors, 2);
+      }
+    }
+  }
+
+  &--compact {
+    .score-badge__cell {
+      width: 12px;
+      height: 15px;
+      font-size: 0.58rem;
+
+      &.is-active {
+        width: 17px;
+        height: 19px;
+        font-size: 0.72rem;
+      }
+    }
+  }
 }
 </style>

@@ -10,14 +10,7 @@ import {
   parisCivilDate,
   type PlanningRange,
 } from '@quisera/shared'
-import {
-  ChevronLeft,
-  ChevronRight,
-  Clock3,
-  Plus,
-  RefreshCw,
-  X,
-} from '@lucide/vue'
+import { ChevronLeft, ChevronRight, Clock3, Plus, RefreshCw, X } from '@lucide/vue'
 import Button from '@/components/ui/Button.vue'
 import ScoreBadge from '@/components/ui/ScoreBadge.vue'
 import { useToast } from '@/components/ui/toast'
@@ -68,14 +61,12 @@ const route = useRoute()
 const router = useRouter()
 const toast = useToast()
 const selectedDate = computed(() =>
-  civilDateSchema.safeParse(route.query.date).success
-    ? (route.query.date as string)
+  civilDateSchema.safeParse(route.query['date']).success
+    ? (route.query['date'] as string)
     : parisCivilDate(new Date()),
 )
 const view = computed<ViewMode>(() =>
-  route.query.view === 'month' || route.query.view === 'day'
-    ? route.query.view
-    : 'week',
+  route.query['view'] === 'month' || route.query['view'] === 'day' ? route.query['view'] : 'week',
 )
 const range = ref<PlanningRange | null>(null)
 const selections = ref<Selection[]>([])
@@ -147,8 +138,8 @@ const cycles = computed(() => range.value?.deliveryCycles ?? [])
 const currentCycle = computed(
   () =>
     cycles.value.find((cycle) => cycle.id === cycleId.value) ??
-    [...cycles.value]
-      .reverse()
+    cycles.value
+      .toReversed()
       .find(
         (cycle) =>
           cycle.deliveryDate <= selectedDate.value &&
@@ -167,16 +158,12 @@ const orderedSlots = computed(() => {
     const date = addCivilDays(currentCycle.value.deliveryDate, offset)
     const day = range.value?.days.find((item) => item.date === date)
     if (!day) continue
-    if (offset !== 0)
-      result.push({ date, period: 'lunch', meal: day.lunch.meal })
-    if (offset !== 7)
-      result.push({ date, period: 'dinner', meal: day.dinner.meal })
+    if (offset !== 0) result.push({ date, period: 'lunch', meal: day.lunch.meal })
+    if (offset !== 7) result.push({ date, period: 'dinner', meal: day.dinner.meal })
   }
   return result
 })
-const selectedDay = computed(() =>
-  range.value?.days.find((day) => day.date === selectedDate.value),
-)
+const selectedDay = computed(() => range.value?.days.find((day) => day.date === selectedDate.value))
 const monthDates = computed(() => monthGridDates(selectedDate.value))
 const monthName = computed(() =>
   new Intl.DateTimeFormat('fr-FR', {
@@ -196,17 +183,17 @@ async function load(silent = false) {
     const bounds = rangeAround(selectedDate.value)
     range.value = await getPlanning(bounds.from, bounds.to)
     const requestedCycle =
-      typeof route.query.cycle === 'string'
-        ? cycles.value.find((cycle) => cycle.id === route.query.cycle)
+      typeof route.query['cycle'] === 'string'
+        ? cycles.value.find((cycle) => cycle.id === route.query['cycle'])
         : undefined
-    const matchingCycle = [...cycles.value]
-      .reverse()
+    const matchingCycle = cycles.value
+      .toReversed()
       .find(
         (cycle) =>
           cycle.deliveryDate <= selectedDate.value &&
           addCivilDays(cycle.deliveryDate, 7) >= selectedDate.value,
       )
-    const closestCycle = [...cycles.value].sort(
+    const closestCycle = cycles.value.toSorted(
       (left, right) =>
         Math.abs(
           Date.parse(`${left.deliveryDate}T00:00:00Z`) -
@@ -217,20 +204,12 @@ async function load(silent = false) {
             Date.parse(`${selectedDate.value}T00:00:00Z`),
         ),
     )[0]
-    cycleId.value =
-      requestedCycle?.id ?? matchingCycle?.id ?? closestCycle?.id ?? ''
-    if (
-      view.value === 'week' &&
-      cycleId.value &&
-      route.query.cycle !== cycleId.value
-    )
+    cycleId.value = requestedCycle?.id ?? matchingCycle?.id ?? closestCycle?.id ?? ''
+    if (view.value === 'week' && cycleId.value && route.query['cycle'] !== cycleId.value)
       void router.replace({ query: { ...route.query, cycle: cycleId.value } })
     if (currentCycle.value) await loadSelections(currentCycle.value.id)
   } catch (cause) {
-    error.value =
-      cause instanceof Error
-        ? cause.message
-        : 'Le planning ne peut pas être chargé.'
+    error.value = cause instanceof Error ? cause.message : 'Le planning ne peut pas être chargé.'
   } finally {
     loading.value = false
   }
@@ -264,14 +243,14 @@ function parseIngredients(value: DeliverySnapshot['ingredientsJson']) {
     return entries.flatMap((entry: unknown) => {
       if (!entry || typeof entry !== 'object') return []
       const item = entry as Record<string, unknown>
-      if (typeof item.name !== 'string') return []
-      const rawUnit = typeof item.unit === 'string' ? item.unit.trim() : null
+      if (typeof item['name'] !== 'string') return []
+      const rawUnit = typeof item['unit'] === 'string' ? item['unit'].trim() : null
       return [
         {
-          name: item.name,
-          quantity: typeof item.quantity === 'string' ? item.quantity : null,
+          name: item['name'],
+          quantity: typeof item['quantity'] === 'string' ? item['quantity'] : null,
           unit: rawUnit && rawUnit.toLowerCase() !== 'g' ? rawUnit : null,
-          notes: typeof item.notes === 'string' ? item.notes : null,
+          notes: typeof item['notes'] === 'string' ? item['notes'] : null,
         },
       ]
     })
@@ -316,9 +295,7 @@ function mealMetrics(meal: SlotMeal | null | undefined) {
 function hasLunchAbove(date: string, period: 'lunch' | 'dinner') {
   return (
     period === 'dinner' &&
-    orderedSlots.value.some(
-      (item) => item.date === date && item.period === 'lunch',
-    )
+    orderedSlots.value.some((item) => item.date === date && item.period === 'lunch')
   )
 }
 async function loadHomeRecipes() {
@@ -360,7 +337,7 @@ onMounted(() => {
   void Promise.all([load(), loadHomeRecipes()])
 })
 watch(
-  () => [route.query.date, route.query.view],
+  () => [route.query['date'], route.query['view']],
   () => void load(),
 )
 function changeView(next: ViewMode) {
@@ -379,17 +356,13 @@ function goDate(date: string, nextView = view.value) {
       ...route.query,
       date,
       view: nextView,
-      ...(nextView === 'week' && cycleId.value
-        ? { cycle: cycleId.value }
-        : { cycle: undefined }),
+      ...(nextView === 'week' && cycleId.value ? { cycle: cycleId.value } : { cycle: undefined }),
     },
   })
 }
 function shift(amount: number) {
   if (view.value === 'week' && currentCycle.value) {
-    const index = cycles.value.findIndex(
-      (cycle) => cycle.id === currentCycle.value?.id,
-    )
+    const index = cycles.value.findIndex((cycle) => cycle.id === currentCycle.value?.id)
     const target = cycles.value[index + amount]
     if (target) {
       cycleId.value = target.id
@@ -437,9 +410,7 @@ function canUseQuitoque(date: string, period: 'lunch' | 'dinner') {
 }
 function mealsForDate(date: string): SlotMeal[] {
   const day = range.value?.days.find((item) => item.date === date)
-  return [day?.lunch.meal, day?.dinner.meal].filter((meal): meal is SlotMeal =>
-    Boolean(meal),
-  )
+  return [day?.lunch.meal, day?.dinner.meal].filter((meal): meal is SlotMeal => Boolean(meal))
 }
 function formFor(date: string, period: 'lunch' | 'dinner') {
   const key = slotKey(date, period)
@@ -460,8 +431,7 @@ async function syncOrders() {
     status.value = `${result.added + result.updated} livraison(s) actualisée(s).${result.invalidDeliveryDates ? ` ${result.invalidDeliveryDates} date(s) non reconnue(s).` : ''}`
     await load()
   } catch (cause) {
-    error.value =
-      cause instanceof Error ? cause.message : 'Synchronisation impossible.'
+    error.value = cause instanceof Error ? cause.message : 'Synchronisation impossible.'
   } finally {
     busy.value = false
   }
@@ -477,8 +447,7 @@ async function syncSelectedRecipes() {
     await loadSelections(currentCycle.value.id)
     await load()
   } catch (cause) {
-    error.value =
-      cause instanceof Error ? cause.message : 'Sélection indisponible.'
+    error.value = cause instanceof Error ? cause.message : 'Sélection indisponible.'
   } finally {
     busy.value = false
   }
@@ -491,10 +460,7 @@ async function distribute() {
   try {
     let result
     try {
-      result = await distributeDelivery(
-        currentCycle.value.id,
-        confirmDistribution.value,
-      )
+      result = await distributeDelivery(currentCycle.value.id, confirmDistribution.value)
     } catch (cause) {
       if ((cause as Error & { status?: number }).status !== 409) throw cause
       if (
@@ -512,8 +478,7 @@ async function distribute() {
     status.value = `${result.assigned} repas réparti(s), ${result.leftEmpty} créneau(x) vide(s), ${result.preserved} choix manuel(s) conservé(s), ${result.unassigned} non affecté(s).`
     await load()
   } catch (cause) {
-    error.value =
-      cause instanceof Error ? cause.message : 'Répartition impossible.'
+    error.value = cause instanceof Error ? cause.message : 'Répartition impossible.'
   } finally {
     busy.value = false
   }
@@ -548,8 +513,7 @@ async function saveSlot(date: string, period: 'lunch' | 'dinner') {
     status.value = 'Repas enregistré.'
     await load()
   } catch (cause) {
-    error.value =
-      cause instanceof Error ? cause.message : 'Enregistrement impossible.'
+    error.value = cause instanceof Error ? cause.message : 'Enregistrement impossible.'
   } finally {
     busy.value = false
   }
@@ -557,23 +521,15 @@ async function saveSlot(date: string, period: 'lunch' | 'dinner') {
 async function clearSlot(date: string, period: 'lunch' | 'dinner') {
   try {
     await clearPlanningSlot(date, period)
-    if (
-      activeMealModal.value?.date === date &&
-      activeMealModal.value?.period === period
-    )
+    if (activeMealModal.value?.date === date && activeMealModal.value?.period === period)
       activeMealModal.value = null
     status.value = 'Créneau libéré.'
     await load()
   } catch (cause) {
-    error.value =
-      cause instanceof Error ? cause.message : 'Suppression impossible.'
+    error.value = cause instanceof Error ? cause.message : 'Suppression impossible.'
   }
 }
-function openMealModal(slot: {
-  date: string
-  period: 'lunch' | 'dinner'
-  meal: SlotMeal | null
-}) {
+function openMealModal(slot: { date: string; period: 'lunch' | 'dinner'; meal: SlotMeal | null }) {
   if (suppressClick.value || !slot.meal) return
   activeMealModal.value = {
     date: slot.date,
@@ -597,8 +553,7 @@ onBeforeUnmount(() => {
 
 function prefersReducedMotion() {
   return (
-    typeof window !== 'undefined' &&
-    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
   )
 }
 
@@ -621,8 +576,7 @@ function stepPendulum(now: number) {
     const stiffness = 210
     const damping = 10.5
     const impulse = Math.max(-2400, Math.min(2400, vx)) * -0.14
-    const angularAcc =
-      -stiffness * pendulumAngle - damping * pendulumVel + impulse
+    const angularAcc = -stiffness * pendulumAngle - damping * pendulumVel + impulse
     pendulumVel += angularAcc * dt
     pendulumAngle += pendulumVel * dt
     pendulumAngle = Math.max(-24, Math.min(24, pendulumAngle))
@@ -641,10 +595,8 @@ function stepPendulum(now: number) {
 function hitTestSlot(clientX: number, clientY: number) {
   const elements = document.elementsFromPoint(clientX, clientY)
   for (const el of elements) {
-    const slotEl = (el as HTMLElement).closest?.(
-      '[data-slot-key]',
-    ) as HTMLElement | null
-    if (slotEl?.dataset.slotKey) return slotEl.dataset.slotKey
+    const slotEl = (el as HTMLElement).closest?.('[data-slot-key]') as HTMLElement | null
+    if (slotEl?.dataset['slotKey']) return slotEl.dataset['slotKey']
   }
   return null
 }
@@ -712,20 +664,13 @@ async function handlePointerUp(event: PointerEvent) {
   const targetKey = source ? hitTestSlot(event.clientX, event.clientY) : null
   const currentFloating = floatingCard.value
 
-  if (
-    !source ||
-    !targetKey ||
-    targetKey === slotKey(source.date, source.period)
-  ) {
+  if (!source || !targetKey || targetKey === slotKey(source.date, source.period)) {
     stopPointerDrag()
     return
   }
 
   const sourceKey = slotKey(source.date, source.period)
-  const [targetDate, targetPeriod] = targetKey.split(':') as [
-    string,
-    'lunch' | 'dinner',
-  ]
+  const [targetDate, targetPeriod] = targetKey.split(':') as [string, 'lunch' | 'dinner']
 
   window.removeEventListener('pointermove', handlePointerMove)
   window.removeEventListener('pointerup', handlePointerUp)
@@ -742,16 +687,9 @@ async function handlePointerUp(event: PointerEvent) {
     suppressClick.value = false
   }, 60)
 
-  const wasSwap = swapMealsInRange(
-    source.date,
-    source.period,
-    targetDate,
-    targetPeriod,
-  )
+  const wasSwap = swapMealsInRange(source.date, source.period, targetDate, targetPeriod)
 
-  const targetEl = document.querySelector<HTMLElement>(
-    `[data-slot-key="${targetKey}"]`,
-  )
+  const targetEl = document.querySelector<HTMLElement>(`[data-slot-key="${targetKey}"]`)
   if (currentFloating && targetEl && !prefersReducedMotion()) {
     const targetRect = targetEl.getBoundingClientRect()
     floatingCard.value = {
@@ -782,8 +720,7 @@ async function handlePointerUp(event: PointerEvent) {
     await load(true)
   } catch (cause) {
     swapMealsInRange(targetDate, targetPeriod, source.date, source.period)
-    error.value =
-      cause instanceof Error ? cause.message : 'Déplacement impossible.'
+    error.value = cause instanceof Error ? cause.message : 'Déplacement impossible.'
   }
 }
 
@@ -838,11 +775,7 @@ function onMealPointerDown(
   <section class="planning" aria-label="Planning">
     <div class="planning__bar">
       <div class="planning__bar-left">
-        <div
-          class="planning__views"
-          role="group"
-          aria-label="Vue du calendrier"
-        >
+        <div class="planning__views" role="group" aria-label="Vue du calendrier">
           <button
             v-for="item in [
               { id: 'week', label: 'Cycle' },
@@ -878,19 +811,14 @@ function onMealPointerDown(
             <ChevronRight :size="18" aria-hidden="true" />
           </button>
         </div>
-        <span v-if="view === 'week' && currentCycle" class="planning__count"
-          >14 créneaux</span
-        >
+        <span v-if="view === 'week' && currentCycle" class="planning__count">14 créneaux</span>
       </div>
       <div class="planning__bar-actions">
         <Button variant="secondary" :loading="busy" @click="syncOrders"
           ><RefreshCw :size="15" aria-hidden="true" /> Livraisons</Button
         >
         <template v-if="view === 'week' && currentCycle">
-          <Button
-            variant="secondary"
-            :loading="busy"
-            @click="syncSelectedRecipes"
+          <Button variant="secondary" :loading="busy" @click="syncSelectedRecipes"
             >Synchroniser cette sélection</Button
           >
           <Button :disabled="busy || !selections.length" @click="distribute"
@@ -899,15 +827,12 @@ function onMealPointerDown(
         </template>
       </div>
     </div>
-    <div v-if="loading" class="planning__empty" role="status">
-      Chargement du calendrier…
-    </div>
+    <div v-if="loading" class="planning__empty" role="status">Chargement du calendrier…</div>
     <template v-else-if="view === 'week'">
       <section v-if="!cycles.length" class="planning__empty">
         <h2>Aucune livraison connue</h2>
         <p>
-          Synchronisez vos livraisons Quitoque pour créer les cycles à partir de
-          leur date réelle.
+          Synchronisez vos livraisons Quitoque pour créer les cycles à partir de leur date réelle.
         </p>
       </section>
       <template v-else-if="currentCycle">
@@ -918,37 +843,21 @@ function onMealPointerDown(
             :data-slot-key="slotKey(slot.date, slot.period)"
             :class="[
               'planning__slot',
-              slot.meal
-                ? `planning__slot--${slot.meal.category}`
-                : 'planning__slot--empty',
+              slot.meal ? `planning__slot--${slot.meal.category}` : 'planning__slot--empty',
               slot.period === 'lunch' &&
-              orderedSlots.some(
-                (s) => s.date === slot.date && s.period === 'dinner',
-              )
+              orderedSlots.some((s) => s.date === slot.date && s.period === 'dinner')
                 ? 'planning__slot--day-start'
                 : '',
-              hasLunchAbove(slot.date, slot.period)
-                ? 'planning__slot--day-continue'
-                : '',
-              dragOverKey === slotKey(slot.date, slot.period)
-                ? 'is-drop-target'
-                : '',
-              dragSource?.date === slot.date &&
-              dragSource?.period === slot.period
+              hasLunchAbove(slot.date, slot.period) ? 'planning__slot--day-continue' : '',
+              dragOverKey === slotKey(slot.date, slot.period) ? 'is-drop-target' : '',
+              dragSource?.date === slot.date && dragSource?.period === slot.period
                 ? 'is-dragging'
                 : '',
-              justDroppedKey === slotKey(slot.date, slot.period)
-                ? 'is-just-dropped'
-                : '',
-              justSwappedKey === slotKey(slot.date, slot.period)
-                ? 'is-just-swapped'
-                : '',
+              justDroppedKey === slotKey(slot.date, slot.period) ? 'is-just-dropped' : '',
+              justSwappedKey === slotKey(slot.date, slot.period) ? 'is-just-swapped' : '',
             ]"
           >
-            <div
-              v-if="!hasLunchAbove(slot.date, slot.period)"
-              class="planning__day-banner"
-            >
+            <div v-if="!hasLunchAbove(slot.date, slot.period)" class="planning__day-banner">
               <strong>{{
                 labelDate(slot.date, {
                   weekday: 'short',
@@ -959,19 +868,15 @@ function onMealPointerDown(
               <span>{{
                 slot.period === 'dinner'
                   ? 'Soir de livraison'
-                  : orderedSlots.some(
-                        (s) => s.date === slot.date && s.period === 'dinner',
-                      )
+                  : orderedSlots.some((s) => s.date === slot.date && s.period === 'dinner')
                     ? 'Midi & Soir'
                     : 'Fin de cycle'
               }}</span>
             </div>
             <div class="planning__slot-subhead">
-              <span
-                class="planning__period-tag"
-                :class="`planning__period-tag--${slot.period}`"
-                >{{ slot.period === 'lunch' ? 'Déjeuner' : 'Dîner' }}</span
-              >
+              <span class="planning__period-tag" :class="`planning__period-tag--${slot.period}`">{{
+                slot.period === 'lunch' ? 'Déjeuner' : 'Dîner'
+              }}</span>
               <button
                 v-if="slot.meal"
                 class="planning__clear"
@@ -992,10 +897,7 @@ function onMealPointerDown(
               @keydown.space.prevent="openMealModal(slot)"
               @pointerdown="onMealPointerDown($event, slot)"
             >
-              <div
-                v-if="slot.meal.thumbnailUrl || slot.meal.imageUrl"
-                class="planning__meal-media"
-              >
+              <div v-if="slot.meal.thumbnailUrl || slot.meal.imageUrl" class="planning__meal-media">
                 <img
                   :src="slot.meal.thumbnailUrl || slot.meal.imageUrl || ''"
                   :alt="''"
@@ -1020,9 +922,7 @@ function onMealPointerDown(
                     slot.meal.origin === 'automatic' ? 'Répartition' : 'Choisi'
                   }}</span>
                 </div>
-                <strong class="planning__meal-title">{{
-                  slot.meal.title
-                }}</strong>
+                <strong class="planning__meal-title">{{ slot.meal.title }}</strong>
                 <div
                   v-if="mealMetrics(slot.meal)"
                   class="planning__metrics"
@@ -1031,8 +931,7 @@ function onMealPointerDown(
                   <span
                     class="planning__metric"
                     :class="{
-                      'planning__metric--muted': !mealMetrics(slot.meal)
-                        ?.totalMinutes,
+                      'planning__metric--muted': !mealMetrics(slot.meal)?.totalMinutes,
                     }"
                     ><Clock3 :size="13" aria-hidden="true" />{{
                       mealMetrics(slot.meal)?.totalMinutes
@@ -1040,16 +939,8 @@ function onMealPointerDown(
                         : 'Durée n/d'
                     }}</span
                   >
-                  <ScoreBadge
-                    kind="nutri"
-                    :grade="mealMetrics(slot.meal)?.nutriScore"
-                    compact
-                  />
-                  <ScoreBadge
-                    kind="eco"
-                    :grade="mealMetrics(slot.meal)?.carbonScore"
-                    compact
-                  />
+                  <ScoreBadge kind="nutri" :grade="mealMetrics(slot.meal)?.nutriScore" compact />
+                  <ScoreBadge kind="eco" :grade="mealMetrics(slot.meal)?.carbonScore" compact />
                 </div>
                 <p v-if="slot.meal.notes" class="planning__meal-notes">
                   {{ slot.meal.notes }}
@@ -1075,25 +966,17 @@ function onMealPointerDown(
                   aria-label="Recette maison"
                 >
                   <option value="">Choisir une recette</option>
-                  <option
-                    v-for="recipe in homeRecipes"
-                    :key="recipe.id"
-                    :value="recipe.id"
-                  >
+                  <option v-for="recipe in homeRecipes" :key="recipe.id" :value="recipe.id">
                     {{ recipe.title }}
                   </option></select
                 ><select
-                  v-else-if="
-                    formFor(slot.date, slot.period).category === 'quitoque'
-                  "
+                  v-else-if="formFor(slot.date, slot.period).category === 'quitoque'"
                   v-model="formFor(slot.date, slot.period).selectionId"
                   aria-label="Recette Quitoque"
                 >
                   <option value="">Choisir une recette</option>
                   <option
-                    v-for="item in selections.filter(
-                      (item) => item.isAvailable,
-                    )"
+                    v-for="item in selections.filter((item) => item.isAvailable)"
                     :key="item.id"
                     :value="item.id"
                   >
@@ -1128,8 +1011,7 @@ function onMealPointerDown(
           </li>
         </ol>
         <p v-if="!selections.length" class="planning__note">
-          La sélection de recettes de cette livraison n’a pas encore été
-          synchronisée.
+          La sélection de recettes de cette livraison n’a pas encore été synchronisée.
         </p>
       </template>
     </template>
@@ -1144,14 +1026,12 @@ function onMealPointerDown(
           <h3>{{ period === 'lunch' ? 'Déjeuner' : 'Dîner' }}</h3>
           <p
             v-if="
-              selectedDay?.[period].meal?.category === 'home' &&
-              selectedDay[period].meal.recipeId
+              selectedDay?.[period].meal?.category === 'home' && selectedDay[period].meal.recipeId
             "
           >
-            <RouterLink
-              :to="`/recettes/${selectedDay[period].meal.recipeId}`"
-              >{{ selectedDay[period].meal.title }}</RouterLink
-            >
+            <RouterLink :to="`/recettes/${selectedDay[period].meal.recipeId}`">{{
+              selectedDay[period].meal.title
+            }}</RouterLink>
           </p>
           <p v-else>
             {{ selectedDay?.[period].meal?.title ?? 'Aucun repas prévu' }}
@@ -1175,15 +1055,9 @@ function onMealPointerDown(
               {{ selectionFor(selectedDay?.[period].meal)?.description }}
             </p>
             <h4>Ingrédients</h4>
-            <ul
-              v-if="
-                selectionFor(selectedDay?.[period].meal)?.ingredients.length
-              "
-            >
+            <ul v-if="selectionFor(selectedDay?.[period].meal)?.ingredients.length">
               <li
-                v-for="(ingredient, index) in selectionFor(
-                  selectedDay?.[period].meal,
-                )?.ingredients"
+                v-for="(ingredient, index) in selectionFor(selectedDay?.[period].meal)?.ingredients"
                 :key="`${index}-${ingredient.name}`"
               >
                 {{ ingredient.name
@@ -1196,8 +1070,7 @@ function onMealPointerDown(
             <h4>Préparation</h4>
             <ol v-if="selectionFor(selectedDay?.[period].meal)?.steps.length">
               <li
-                v-for="(step, index) in selectionFor(selectedDay?.[period].meal)
-                  ?.steps"
+                v-for="(step, index) in selectionFor(selectedDay?.[period].meal)?.steps"
                 :key="index"
               >
                 {{ step }}
@@ -1206,32 +1079,17 @@ function onMealPointerDown(
             <p v-else>Étapes non disponibles.</p>
           </details>
         </div>
-        <button
-          v-if="selectedDay?.[period].meal"
-          @click="clearSlot(selectedDate, period)"
-        >
+        <button v-if="selectedDay?.[period].meal" @click="clearSlot(selectedDate, period)">
           Vider</button
-        ><button @click="changeView('week')">
-          Ouvrir le cycle de livraison
-        </button>
+        ><button @click="changeView('week')">Ouvrir le cycle de livraison</button>
         <details>
           <summary>
-            {{
-              selectedDay?.[period].meal
-                ? 'Remplacer le repas'
-                : 'Ajouter un repas'
-            }}
+            {{ selectedDay?.[period].meal ? 'Remplacer le repas' : 'Ajouter un repas' }}
           </summary>
           <div class="planning__form">
-            <select
-              v-model="formFor(selectedDate, period).category"
-              aria-label="Type de repas"
-            >
+            <select v-model="formFor(selectedDate, period).category" aria-label="Type de repas">
               <option value="home">Maison</option>
-              <option
-                value="quitoque"
-                :disabled="!canUseQuitoque(selectedDate, period)"
-              >
+              <option value="quitoque" :disabled="!canUseQuitoque(selectedDate, period)">
                 Quitoque
               </option>
               <option value="restaurant">Restaurant</option></select
@@ -1241,11 +1099,7 @@ function onMealPointerDown(
               aria-label="Recette maison"
             >
               <option value="">Choisir une recette</option>
-              <option
-                v-for="recipe in homeRecipes"
-                :key="recipe.id"
-                :value="recipe.id"
-              >
+              <option v-for="recipe in homeRecipes" :key="recipe.id" :value="recipe.id">
                 {{ recipe.title }}
               </option></select
             ><select
@@ -1292,19 +1146,9 @@ function onMealPointerDown(
     </section>
     <section v-else class="planning__month" aria-label="Calendrier mensuel">
       <div class="planning__weekdays">
-        <span
-          v-for="day in [
-            'Lun.',
-            'Mar.',
-            'Mer.',
-            'Jeu.',
-            'Ven.',
-            'Sam.',
-            'Dim.',
-          ]"
-          :key="day"
-          >{{ day }}</span
-        >
+        <span v-for="day in ['Lun.', 'Mar.', 'Mer.', 'Jeu.', 'Ven.', 'Sam.', 'Dim.']" :key="day">{{
+          day
+        }}</span>
       </div>
       <div class="planning__month-grid">
         <button
@@ -1314,12 +1158,12 @@ function onMealPointerDown(
           :class="{
             'is-outside': date.slice(0, 7) !== selectedDate.slice(0, 7),
             'is-selected': date === selectedDate,
-            'is-delivery': range?.days.find((day) => day.date === date)
-              ?.isDeliveryDay,
+            'is-delivery': range?.days.find((day) => day.date === date)?.isDeliveryDay,
           }"
           @click="goDate(date, 'day')"
         >
-          <strong>{{ Number(date.slice(-2)) }}</strong><span
+          <strong>{{ Number(date.slice(-2)) }}</strong
+          ><span
             v-for="meal in mealsForDate(date)"
             :key="meal.id"
             :class="`planning__month-meal--${meal.category}`"
@@ -1330,10 +1174,7 @@ function onMealPointerDown(
                   ? 'Maison'
                   : 'Restaurant'
             }}</span
-          ><span
-            v-if="range?.days.find((day) => day.date === date)?.isDeliveryDay"
-            >Livraison</span
-          >
+          ><span v-if="range?.days.find((day) => day.date === date)?.isDeliveryDay">Livraison</span>
         </button>
       </div>
     </section>
@@ -1354,12 +1195,7 @@ function onMealPointerDown(
           v-if="floatingCard.meal.thumbnailUrl || floatingCard.meal.imageUrl"
           class="planning-drag-ghost__media"
         >
-          <img
-            :src="
-              floatingCard.meal.thumbnailUrl || floatingCard.meal.imageUrl || ''
-            "
-            alt=""
-          />
+          <img :src="floatingCard.meal.thumbnailUrl || floatingCard.meal.imageUrl || ''" alt="" />
         </div>
         <div class="planning-drag-ghost__body">
           <span
@@ -1386,9 +1222,7 @@ function onMealPointerDown(
             <div class="planning-modal__header-meta">
               <span class="planning-modal__date"
                 >{{ labelDate(activeMealModal.date) }} ·
-                {{
-                  activeMealModal.period === 'lunch' ? 'Déjeuner' : 'Dîner'
-                }}</span
+                {{ activeMealModal.period === 'lunch' ? 'Déjeuner' : 'Dîner' }}</span
               >
               <h2 id="planning-modal-title">
                 {{ activeMealModal.meal.title }}
@@ -1404,18 +1238,11 @@ function onMealPointerDown(
           </header>
           <div class="planning-modal__body">
             <div
-              v-if="
-                activeMealModal.meal.imageUrl ||
-                activeMealModal.meal.thumbnailUrl
-              "
+              v-if="activeMealModal.meal.imageUrl || activeMealModal.meal.thumbnailUrl"
               class="planning-modal__media"
             >
               <img
-                :src="
-                  activeMealModal.meal.imageUrl ||
-                  activeMealModal.meal.thumbnailUrl ||
-                  ''
-                "
+                :src="activeMealModal.meal.imageUrl || activeMealModal.meal.thumbnailUrl || ''"
                 :alt="`Photographie de ${activeMealModal.meal.title}`"
               />
             </div>
@@ -1432,9 +1259,7 @@ function onMealPointerDown(
                 }}</span
               >
               <span class="planning__origin">{{
-                activeMealModal.meal.origin === 'automatic'
-                  ? 'Répartition'
-                  : 'Choisi'
+                activeMealModal.meal.origin === 'automatic' ? 'Répartition' : 'Choisi'
               }}</span>
               <template v-if="mealMetrics(activeMealModal.meal)">
                 <span class="planning__metric"
@@ -1444,14 +1269,8 @@ function onMealPointerDown(
                       : 'Durée n/d'
                   }}</span
                 >
-                <ScoreBadge
-                  kind="nutri"
-                  :grade="mealMetrics(activeMealModal.meal)?.nutriScore"
-                />
-                <ScoreBadge
-                  kind="eco"
-                  :grade="mealMetrics(activeMealModal.meal)?.carbonScore"
-                />
+                <ScoreBadge kind="nutri" :grade="mealMetrics(activeMealModal.meal)?.nutriScore" />
+                <ScoreBadge kind="eco" :grade="mealMetrics(activeMealModal.meal)?.carbonScore" />
               </template>
             </div>
             <p v-if="activeMealModal.meal.notes" class="planning-modal__notes">
@@ -1471,18 +1290,14 @@ function onMealPointerDown(
                   class="planning-modal__ingredients"
                 >
                   <li
-                    v-for="(ingredient, index) in selectionFor(
-                      activeMealModal.meal,
-                    )?.ingredients"
+                    v-for="(ingredient, index) in selectionFor(activeMealModal.meal)?.ingredients"
                     :key="`${index}-${ingredient.name}`"
                   >
                     <strong>{{ ingredient.name }}</strong>
                     <span v-if="ingredient.quantity">
                       · {{ ingredient.quantity }} {{ ingredient.unit }}</span
                     >
-                    <span v-if="ingredient.notes">
-                      · {{ ingredient.notes }}</span
-                    >
+                    <span v-if="ingredient.notes"> · {{ ingredient.notes }}</span>
                   </li>
                 </ul>
                 <p v-else>Ingrédients non disponibles.</p>
@@ -1494,8 +1309,7 @@ function onMealPointerDown(
                   class="planning-modal__steps"
                 >
                   <li
-                    v-for="(step, index) in selectionFor(activeMealModal.meal)
-                      ?.steps"
+                    v-for="(step, index) in selectionFor(activeMealModal.meal)?.steps"
                     :key="index"
                   >
                     {{ formatRecipeInstructions(step, index + 1) }}
@@ -1505,10 +1319,7 @@ function onMealPointerDown(
               </section>
             </template>
             <div
-              v-else-if="
-                activeMealModal.meal.category === 'home' &&
-                activeMealModal.meal.recipeId
-              "
+              v-else-if="activeMealModal.meal.category === 'home' && activeMealModal.meal.recipeId"
               class="planning-modal__link-wrap"
             >
               <RouterLink
@@ -1534,7 +1345,7 @@ function onMealPointerDown(
   </section>
 </template>
 
-<style scoped>
+<style scoped lang="scss">
 .planning {
   color: var(--q-text);
   display: flex;
@@ -2239,7 +2050,7 @@ function onMealPointerDown(
 }
 </style>
 
-<style>
+<style lang="scss">
 .planning-drag-ghost {
   position: fixed;
   top: 0;
@@ -2254,8 +2065,7 @@ function onMealPointerDown(
   color: var(--q-forest);
   border: 2px solid var(--q-forest);
   overflow: hidden;
-  box-shadow: 0 22px 44px -10px
-    color-mix(in srgb, var(--q-forest) 45%, transparent);
+  box-shadow: 0 22px 44px -10px color-mix(in srgb, var(--q-forest) 45%, transparent);
 }
 .planning-drag-ghost.is-settling {
   transition:
@@ -2263,8 +2073,7 @@ function onMealPointerDown(
     opacity 200ms ease,
     box-shadow 200ms ease;
   opacity: 0;
-  box-shadow: 0 4px 12px -4px
-    color-mix(in srgb, var(--q-forest) 20%, transparent);
+  box-shadow: 0 4px 12px -4px color-mix(in srgb, var(--q-forest) 20%, transparent);
 }
 .planning-drag-ghost__pin {
   position: absolute;

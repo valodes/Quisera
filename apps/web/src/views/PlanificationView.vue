@@ -108,23 +108,16 @@ const slotsForSelectedDate = computed(() => {
   if (!selectedDeliveryDate.value) return availableTimeSlots.value
   return availableTimeSlots.value.filter(
     (slot) =>
-      slot.deliveryDates.length === 0 ||
-      slot.deliveryDates.includes(selectedDeliveryDate.value),
+      slot.deliveryDates.length === 0 || slot.deliveryDates.includes(selectedDeliveryDate.value),
   )
 })
 
 const totalBoxItemsCount = computed(() =>
-  (currentWeek.value?.items ?? []).reduce(
-    (sum, item) => sum + item.quantity,
-    0,
-  ),
+  (currentWeek.value?.items ?? []).reduce((sum, item) => sum + item.quantity, 0),
 )
 
 const activeFilterCount = computed(() =>
-  Object.values(selectedFilters.value).reduce(
-    (sum, list) => sum + list.length,
-    0,
-  ),
+  Object.values(selectedFilters.value).reduce((sum, list) => sum + list.length, 0),
 )
 
 const activeFilterChips = computed(() => {
@@ -159,9 +152,7 @@ function handleKeydown(event: KeyboardEvent) {
 
 const currentWeek = computed(
   () =>
-    weeks.value.find((week) => week.orderId === selectedOrderId.value) ??
-    weeks.value[0] ??
-    null,
+    weeks.value.find((week) => week.orderId === selectedOrderId.value) ?? weeks.value[0] ?? null,
 )
 
 const isLocked = computed(() => {
@@ -201,10 +192,7 @@ const groupedCartItems = computed(() => {
 })
 
 function sectionCount(section: PlanificationSection) {
-  return groupedCartItems.value[section].reduce(
-    (sum, item) => sum + item.quantity,
-    0,
-  )
+  return groupedCartItems.value[section].reduce((sum, item) => sum + item.quantity, 0)
 }
 
 const recipeProgressPercent = computed(() => {
@@ -248,9 +236,7 @@ const filteredProducts = computed(() => {
     for (const [groupCode, values] of Object.entries(selectedFilters.value)) {
       if (!values.length) continue
       const itemValues = item.filterValues[groupCode] ?? []
-      const matchesGroup = values.some((val) =>
-        itemValues.includes(val.toLowerCase()),
-      )
+      const matchesGroup = values.some((val) => itemValues.includes(val.toLowerCase()))
       if (!matchesGroup) return false
     }
 
@@ -300,9 +286,7 @@ function toggleFilter(groupCode: string, value: string) {
   const exists = current.includes(value)
   selectedFilters.value = {
     ...selectedFilters.value,
-    [groupCode]: exists
-      ? current.filter((v) => v !== value)
-      : [...current, value],
+    [groupCode]: exists ? current.filter((v) => v !== value) : [...current, value],
   }
 }
 
@@ -317,9 +301,7 @@ function resetFilters() {
 }
 
 function replaceWeekInList(updated: UpcomingBoxWeek) {
-  weeks.value = weeks.value.map((week) =>
-    week.orderId === updated.orderId ? updated : week,
-  )
+  weeks.value = weeks.value.map((week) => (week.orderId === updated.orderId ? updated : week))
 }
 
 async function loadWeeks() {
@@ -327,12 +309,8 @@ async function loadWeeks() {
   try {
     const data = await listUpcomingWeeks()
     weeks.value = data
-    if (
-      !selectedOrderId.value ||
-      !data.some((w) => w.orderId === selectedOrderId.value)
-    ) {
-      selectedOrderId.value =
-        data.find((w) => w.isNextOrder)?.orderId ?? data[0]?.orderId ?? ''
+    if (!selectedOrderId.value || !data.some((w) => w.orderId === selectedOrderId.value)) {
+      selectedOrderId.value = data.find((w) => w.isNextOrder)?.orderId ?? data[0]?.orderId ?? ''
     }
   } catch (cause) {
     toast.error(
@@ -350,11 +328,7 @@ async function loadCatalog() {
   if (!week || activeSection.value === 'recap') return
   catalogLoading.value = true
   try {
-    const res = await getWeekCatalog(
-      week.periodStartDate,
-      week.periodEndDate,
-      activeSection.value,
-    )
+    const res = await getWeekCatalog(week.periodStartDate, week.periodEndDate, activeSection.value)
     catalogItems.value = res.items
     filterGroups.value = res.filterGroups
     seasonalCategories.value = res.seasonalCategories
@@ -363,9 +337,7 @@ async function loadCatalog() {
     filterGroups.value = []
     seasonalCategories.value = []
     toast.error(
-      cause instanceof Error
-        ? cause.message
-        : 'Impossible de charger le catalogue Quitoque.',
+      cause instanceof Error ? cause.message : 'Impossible de charger le catalogue Quitoque.',
     )
   } finally {
     catalogLoading.value = false
@@ -394,9 +366,7 @@ function launchFlyToCart(product: CatalogProduct) {
     `[data-product-id="${product.id}"] .planif-card__media`,
   )
   const targetEl =
-    document.querySelector<HTMLElement>(
-      `[data-cart-group="${product.section}"]`,
-    ) ?? cartRef.value
+    document.querySelector<HTMLElement>(`[data-cart-group="${product.section}"]`) ?? cartRef.value
   if (!sourceEl || !targetEl) {
     triggerCartPulse('catch')
     return
@@ -420,8 +390,7 @@ function launchFlyToCart(product: CatalogProduct) {
   }
   document.body.appendChild(flyer)
 
-  const endX =
-    to.left + Math.min(to.width * 0.35, 80) - from.left - from.width * 0.38
+  const endX = to.left + Math.min(to.width * 0.35, 80) - from.left - from.width * 0.38
   const endY = to.top + 16 - from.top - from.height * 0.38
   const midX = endX * 0.48
   const arcLift = Math.min(-90, Math.min(0, endY) - 95)
@@ -455,8 +424,8 @@ function launchFlyToCart(product: CatalogProduct) {
   )
 
   window.setTimeout(() => triggerCartPulse('catch'), 430)
-  animation.onfinish = () => flyer.remove()
-  animation.oncancel = () => flyer.remove()
+  animation.addEventListener('finish', () => flyer.remove(), { once: true })
+  animation.addEventListener('cancel', () => flyer.remove(), { once: true })
 }
 
 async function handleAddProduct(product: CatalogProduct) {
@@ -510,8 +479,7 @@ async function handleChangeQuantity(item: BoxCartItem, delta: number) {
               }
             : entry,
         )
-  const priceDelta =
-    nextQty <= 0 ? -item.totalCents : item.unitPriceCents * delta
+  const priceDelta = nextQty <= 0 ? -item.totalCents : item.unitPriceCents * delta
   replaceWeekInList({
     ...week,
     items: optimisticItems,
@@ -526,16 +494,10 @@ async function handleChangeQuantity(item: BoxCartItem, delta: number) {
         ? await removeBoxItem(week.orderId, item.id)
         : await updateBoxItemQuantity(week.orderId, item.id, nextQty)
     replaceWeekInList(updated)
-    toast.success(
-      nextQty <= 0
-        ? `« ${item.title} » retiré de la box.`
-        : 'Quantité mise à jour.',
-    )
+    toast.success(nextQty <= 0 ? `« ${item.title} » retiré de la box.` : 'Quantité mise à jour.')
   } catch (cause) {
     replaceWeekInList(previousWeek)
-    toast.error(
-      cause instanceof Error ? cause.message : 'Modification impossible.',
-    )
+    toast.error(cause instanceof Error ? cause.message : 'Modification impossible.')
   } finally {
     mutatingKey.value = null
   }
@@ -544,8 +506,7 @@ async function handleChangeQuantity(item: BoxCartItem, delta: number) {
 async function loadRecapData() {
   const week = currentWeek.value
   if (!week) return
-  selectedDeliveryDate.value =
-    week.shipment?.deliveryDate ?? week.deliveryDate ?? ''
+  selectedDeliveryDate.value = week.shipment?.deliveryDate ?? week.deliveryDate ?? ''
   selectedTimeSlotId.value = week.shipment?.timeSlotId ?? null
 
   const postcode = week.shippingAddress?.postcode
@@ -555,7 +516,7 @@ async function loadRecapData() {
       const res = await getDeliveryTimeSlots(postcode, week.periodStartDate)
       availableDeliveryDates.value = res.deliveryDates
       availableTimeSlots.value = res.timeSlots
-      if (!selectedDeliveryDate.value && res.deliveryDates.length > 0) {
+      if (!selectedDeliveryDate.value && res.deliveryDates[0]) {
         selectedDeliveryDate.value = res.deliveryDates[0]
       }
     } catch {
@@ -593,9 +554,7 @@ async function handleSelectServings(size: number) {
     toast.success(`Box ajustée pour ${size} personnes.`)
   } catch (cause) {
     toast.error(
-      cause instanceof Error
-        ? cause.message
-        : 'Impossible de modifier le nombre de personnes.',
+      cause instanceof Error ? cause.message : 'Impossible de modifier le nombre de personnes.',
     )
   } finally {
     savingServings.value = false
@@ -604,15 +563,8 @@ async function handleSelectServings(size: number) {
 
 async function handleSaveDeliverySlot() {
   const week = currentWeek.value
-  if (
-    !week?.shipment?.id ||
-    !selectedDeliveryDate.value ||
-    !selectedTimeSlotId.value
-  )
-    return
-  const slot = slotsForSelectedDate.value.find(
-    (s) => s.id === selectedTimeSlotId.value,
-  )
+  if (!week?.shipment?.id || !selectedDeliveryDate.value || !selectedTimeSlotId.value) return
+  const slot = slotsForSelectedDate.value.find((s) => s.id === selectedTimeSlotId.value)
   if (!slot) return
   savingDelivery.value = true
   try {
@@ -630,9 +582,7 @@ async function handleSaveDeliverySlot() {
     )
   } catch (cause) {
     toast.error(
-      cause instanceof Error
-        ? cause.message
-        : 'Impossible de modifier le créneau de livraison.',
+      cause instanceof Error ? cause.message : 'Impossible de modifier le créneau de livraison.',
     )
   } finally {
     savingDelivery.value = false
@@ -647,9 +597,7 @@ async function handleApplyCoupon(code: string | null) {
     const updated = await applyBoxCoupon(week.orderId, code)
     replaceWeekInList(updated)
     manualCouponInput.value = ''
-    toast.success(
-      code ? `Code promo « ${code} » appliqué.` : 'Code promo retiré.',
-    )
+    toast.success(code ? `Code promo « ${code} » appliqué.` : 'Code promo retiré.')
   } catch (cause) {
     toast.error(cause instanceof Error ? cause.message : 'Code promo refusé.')
   } finally {
@@ -664,15 +612,9 @@ async function handleToggleWallet() {
   try {
     const updated = await toggleBoxWallet(week.orderId, !week.useWallet)
     replaceWeekInList(updated)
-    toast.success(
-      updated.useWallet
-        ? 'Cagnotte activée sur cette box.'
-        : 'Cagnotte désactivée.',
-    )
+    toast.success(updated.useWallet ? 'Cagnotte activée sur cette box.' : 'Cagnotte désactivée.')
   } catch (cause) {
-    toast.error(
-      cause instanceof Error ? cause.message : 'Modification impossible.',
-    )
+    toast.error(cause instanceof Error ? cause.message : 'Modification impossible.')
   } finally {
     savingPromo.value = false
   }
@@ -710,15 +652,8 @@ onBeforeUnmount(() => {
       <div class="planif-top__week">
         <label class="planif-top__select-wrap">
           <span>Semaine à planifier</span>
-          <select
-            v-model="selectedOrderId"
-            :disabled="weeksLoading || !weeks.length"
-          >
-            <option
-              v-for="week in weeks"
-              :key="week.orderId"
-              :value="week.orderId"
-            >
+          <select v-model="selectedOrderId" :disabled="weeksLoading || !weeks.length">
+            <option v-for="week in weeks" :key="week.orderId" :value="week.orderId">
               Semaine du {{ formatShortDate(week.periodStartDate) }} au
               {{ formatShortDate(week.periodEndDate) }}
               {{ week.isNextOrder ? '· Prochaine box' : '' }}
@@ -801,9 +736,7 @@ onBeforeUnmount(() => {
               </p>
             </div>
             <span
-              v-if="
-                currentWeek.shipment?.startTime && currentWeek.shipment?.endTime
-              "
+              v-if="currentWeek.shipment?.startTime && currentWeek.shipment?.endTime"
               class="recap-card__slot-pill"
             >
               <Clock3 :size="14" aria-hidden="true" />
@@ -823,20 +756,14 @@ onBeforeUnmount(() => {
               />
               <div v-else class="recap-map__fallback">
                 <MapPin :size="28" aria-hidden="true" />
-                <strong>{{
-                  currentWeek.shippingAddress?.city ?? 'Adresse de livraison'
-                }}</strong>
+                <strong>{{ currentWeek.shippingAddress?.city ?? 'Adresse de livraison' }}</strong>
                 <span>{{ currentWeek.shippingAddress?.street }}</span>
               </div>
             </div>
 
             <div class="recap-slots">
               <h3>Modifier le jour et le créneau horaire</h3>
-              <div
-                v-if="timeSlotsLoading"
-                class="recap-slots__loading"
-                role="status"
-              >
+              <div v-if="timeSlotsLoading" class="recap-slots__loading" role="status">
                 Chargement des créneaux disponibles…
               </div>
               <template v-else-if="availableDeliveryDates.length">
@@ -866,9 +793,7 @@ onBeforeUnmount(() => {
                   >
                     <div>
                       <strong>Entre {{ slot.begin }} et {{ slot.end }}</strong>
-                      <span v-if="slot.recommended" class="recap-timeslot__tag"
-                        >Recommandé</span
-                      >
+                      <span v-if="slot.recommended" class="recap-timeslot__tag">Recommandé</span>
                     </div>
                     <span>{{ formatCents(slot.priceCents) }}</span>
                   </button>
@@ -899,9 +824,7 @@ onBeforeUnmount(() => {
                 <Users :size="19" aria-hidden="true" />
                 Nombre de personnes
               </h2>
-              <p>
-                Ajuste automatiquement les portions des recettes de cette box.
-              </p>
+              <p>Ajuste automatiquement les portions des recettes de cette box.</p>
             </div>
           </header>
           <div class="recap-servings">
@@ -946,36 +869,24 @@ onBeforeUnmount(() => {
                 Modifier
               </button>
             </div>
-            <div
-              v-if="groupedCartItems[section.id].length"
-              class="recap-gallery-grid"
-            >
+            <div v-if="groupedCartItems[section.id].length" class="recap-gallery-grid">
               <article
                 v-for="item in groupedCartItems[section.id]"
                 :key="`recap-item-${item.id}`"
                 class="recap-item-card"
               >
                 <div class="recap-item-card__media">
-                  <img
-                    v-if="item.imageUrl"
-                    :src="item.imageUrl"
-                    :alt="item.title"
-                    loading="lazy"
-                  />
+                  <img v-if="item.imageUrl" :src="item.imageUrl" :alt="item.title" loading="lazy" />
                   <UtensilsCrossed v-else :size="28" aria-hidden="true" />
                   <span class="recap-item-card__qty">×{{ item.quantity }}</span>
                 </div>
                 <div class="recap-item-card__body">
                   <strong>{{ item.title }}</strong>
-                  <span v-if="item.totalCents > 0">{{
-                    formatCents(item.totalCents)
-                  }}</span>
+                  <span v-if="item.totalCents > 0">{{ formatCents(item.totalCents) }}</span>
                 </div>
               </article>
             </div>
-            <p v-else class="planif-cart__empty">
-              Aucun article dans cette catégorie.
-            </p>
+            <p v-else class="planif-cart__empty">Aucun article dans cette catégorie.</p>
           </div>
         </section>
       </div>
@@ -1001,9 +912,7 @@ onBeforeUnmount(() => {
                 <strong>{{ promo.description ?? promo.name }}</strong>
                 <small>
                   <span v-if="promo.couponCode">{{ promo.couponCode }}</span>
-                  <span v-if="promo.amountCents > 0">
-                    · -{{ formatCents(promo.amountCents) }}</span
-                  >
+                  <span v-if="promo.amountCents > 0"> · -{{ formatCents(promo.amountCents) }}</span>
                   <span v-if="promo.endsAt">
                     · Valable jusqu’au {{ formatShortDate(promo.endsAt) }}</span
                   >
@@ -1014,24 +923,19 @@ onBeforeUnmount(() => {
                 type="button"
                 class="recap-promo__btn"
                 :disabled="isLocked || savingPromo"
-                @click="
-                  handleApplyCoupon(promo.isOnOrder ? null : promo.couponCode)
-                "
+                @click="handleApplyCoupon(promo.isOnOrder ? null : promo.couponCode)"
               >
                 <Check v-if="promo.isOnOrder" :size="14" aria-hidden="true" />
                 {{ promo.isOnOrder ? 'Appliqué' : 'Appliquer' }}
               </button>
             </li>
           </ul>
-          <p v-else class="planif-cart__empty">
-            Aucun code promo disponible sur votre compte.
-          </p>
+          <p v-else class="planif-cart__empty">Aucun code promo disponible sur votre compte.</p>
 
           <form
             class="recap-coupon-form"
             @submit.prevent="
-              manualCouponInput.trim() &&
-              handleApplyCoupon(manualCouponInput.trim())
+              manualCouponInput.trim() && handleApplyCoupon(manualCouponInput.trim())
             "
           >
             <input
@@ -1055,10 +959,7 @@ onBeforeUnmount(() => {
                 <Wallet :size="16" aria-hidden="true" />
                 Cagnotte Quitoque
               </strong>
-              <small
-                >Solde disponible :
-                {{ formatCents(currentWeek.walletBalanceCents) }}</small
-              >
+              <small>Solde disponible : {{ formatCents(currentWeek.walletBalanceCents) }}</small>
             </div>
             <button
               type="button"
@@ -1086,9 +987,7 @@ onBeforeUnmount(() => {
               class="planif-cart__line planif-cart__line--promo"
             >
               <span>Réductions</span>
-              <strong>{{
-                formatCents(currentWeek.promotionTotalCents)
-              }}</strong>
+              <strong>{{ formatCents(currentWeek.promotionTotalCents) }}</strong>
             </div>
             <div
               v-if="currentWeek.walletTotalCents !== 0"
@@ -1153,10 +1052,7 @@ onBeforeUnmount(() => {
           </div>
 
           <!-- Single-line scrollable seasonal & active filter strip -->
-          <div
-            v-if="seasonalCategories.length || activeFilterChips.length"
-            class="planif-strip"
-          >
+          <div v-if="seasonalCategories.length || activeFilterChips.length" class="planif-strip">
             <span v-if="seasonalCategories.length" class="planif-strip__icon">
               <Sparkles :size="14" aria-hidden="true" />
             </span>
@@ -1185,11 +1081,7 @@ onBeforeUnmount(() => {
 
           <!-- Collapsible detailed filter groups -->
           <div v-if="filtersOpen && filterGroups.length" class="planif-drawer">
-            <div
-              v-for="group in filterGroups"
-              :key="group.code"
-              class="planif-filter-group"
-            >
+            <div v-for="group in filterGroups" :key="group.code" class="planif-filter-group">
               <span class="planif-filter-group__label">{{ group.name }}</span>
               <div class="planif-filter-pills">
                 <button
@@ -1242,20 +1134,14 @@ onBeforeUnmount(() => {
                   loading="lazy"
                 />
                 <UtensilsCrossed v-else :size="36" aria-hidden="true" />
-                <span
-                  v-if="product.highlights.length"
-                  class="planif-card__highlight"
-                  >{{ product.highlights[0] }}</span
-                >
-                <span
-                  v-if="product.additionalCostCents > 0"
-                  class="planif-card__extra"
+                <span v-if="product.highlights.length" class="planif-card__highlight">{{
+                  product.highlights[0]
+                }}</span>
+                <span v-if="product.additionalCostCents > 0" class="planif-card__extra"
                   >+{{ formatCents(product.additionalCostCents) }}</span
                 >
                 <span
-                  v-else-if="
-                    product.section !== 'recipes' && product.priceCents
-                  "
+                  v-else-if="product.section !== 'recipes' && product.priceCents"
                   class="planif-card__extra"
                   >{{ formatCents(product.priceCents) }}</span
                 >
@@ -1295,28 +1181,16 @@ onBeforeUnmount(() => {
                     type="button"
                     aria-label="Retirer un exemplaire"
                     :disabled="isLocked || mutatingKey === product.id"
-                    @click="
-                      handleChangeQuantity(
-                        cartItemByProductId.get(product.id)!,
-                        -1,
-                      )
-                    "
+                    @click="handleChangeQuantity(cartItemByProductId.get(product.id)!, -1)"
                   >
                     <Minus :size="15" aria-hidden="true" />
                   </button>
-                  <span>{{
-                    cartItemByProductId.get(product.id)!.quantity
-                  }}</span>
+                  <span>{{ cartItemByProductId.get(product.id)!.quantity }}</span>
                   <button
                     type="button"
                     aria-label="Ajouter un exemplaire"
                     :disabled="isLocked || mutatingKey === product.id"
-                    @click="
-                      handleChangeQuantity(
-                        cartItemByProductId.get(product.id)!,
-                        1,
-                      )
-                    "
+                    @click="handleChangeQuantity(cartItemByProductId.get(product.id)!, 1)"
                   >
                     <Plus :size="15" aria-hidden="true" />
                   </button>
@@ -1364,10 +1238,7 @@ onBeforeUnmount(() => {
         <div v-if="currentWeek.recipeTargetCount" class="planif-cart__progress">
           <div class="planif-cart__progress-row">
             <strong>Recettes choisies</strong>
-            <span
-              >{{ sectionCount('recipes') }} /
-              {{ currentWeek.recipeTargetCount }}</span
-            >
+            <span>{{ sectionCount('recipes') }} / {{ currentWeek.recipeTargetCount }}</span>
           </div>
           <div class="planif-cart__progress-track">
             <div
@@ -1400,19 +1271,12 @@ onBeforeUnmount(() => {
                 class="planif-cart__item"
               >
                 <div class="planif-cart__thumb">
-                  <img
-                    v-if="item.imageUrl"
-                    :src="item.imageUrl"
-                    alt=""
-                    loading="lazy"
-                  />
+                  <img v-if="item.imageUrl" :src="item.imageUrl" alt="" loading="lazy" />
                   <UtensilsCrossed v-else :size="18" aria-hidden="true" />
                 </div>
                 <div class="planif-cart__item-info">
                   <strong>{{ item.title }}</strong>
-                  <small v-if="item.totalCents > 0">{{
-                    formatCents(item.totalCents)
-                  }}</small>
+                  <small v-if="item.totalCents > 0">{{ formatCents(item.totalCents) }}</small>
                 </div>
                 <div class="planif-cart__item-controls">
                   <button
@@ -1421,11 +1285,7 @@ onBeforeUnmount(() => {
                     :disabled="isLocked || mutatingKey === item.productId"
                     @click="handleChangeQuantity(item, -1)"
                   >
-                    <Trash2
-                      v-if="item.quantity === 1"
-                      :size="13"
-                      aria-hidden="true"
-                    />
+                    <Trash2 v-if="item.quantity === 1" :size="13" aria-hidden="true" />
                     <Minus v-else :size="13" aria-hidden="true" />
                   </button>
                   <span>{{ item.quantity }}</span>
@@ -1528,10 +1388,7 @@ onBeforeUnmount(() => {
                 class="planif-modal__chip planif-modal__chip--shoot"
                 >{{ hl }}</span
               >
-              <span
-                v-if="activeProductModal.totalMinutes"
-                class="planif-modal__chip"
-              >
+              <span v-if="activeProductModal.totalMinutes" class="planif-modal__chip">
                 <Clock3 :size="13" aria-hidden="true" />
                 {{ activeProductModal.totalMinutes }} min
               </span>
@@ -1539,14 +1396,11 @@ onBeforeUnmount(() => {
                 v-if="activeProductModal.additionalCostCents > 0"
                 class="planif-modal__chip planif-modal__chip--accent"
               >
-                Supplément +{{
-                  formatCents(activeProductModal.additionalCostCents)
-                }}
+                Supplément +{{ formatCents(activeProductModal.additionalCostCents) }}
               </span>
               <span
                 v-else-if="
-                  activeProductModal.section !== 'recipes' &&
-                  activeProductModal.priceCents
+                  activeProductModal.section !== 'recipes' && activeProductModal.priceCents
                 "
                 class="planif-modal__chip planif-modal__chip--accent"
               >
@@ -1568,10 +1422,7 @@ onBeforeUnmount(() => {
               {{ activeProductModal.description }}
             </p>
 
-            <section
-              v-if="activeProductModal.allergens.length"
-              class="planif-modal__section-block"
-            >
+            <section v-if="activeProductModal.allergens.length" class="planif-modal__section-block">
               <h3>Allergènes</h3>
               <div class="planif-modal__badges">
                 <span
@@ -1595,18 +1446,14 @@ onBeforeUnmount(() => {
                 >
                   <strong>{{ ing.name }}</strong>
                   <span v-if="ing.quantity">
-                    · {{ ing.quantity
-                    }}<template v-if="ing.unit"> {{ ing.unit }}</template></span
+                    · {{ ing.quantity }}<template v-if="ing.unit"> {{ ing.unit }}</template></span
                   >
                   <span v-if="ing.notes"> · {{ ing.notes }}</span>
                 </li>
               </ul>
             </section>
 
-            <section
-              v-if="activeProductModal.steps.length"
-              class="planif-modal__section-block"
-            >
+            <section v-if="activeProductModal.steps.length" class="planif-modal__section-block">
               <h3>Préparation</h3>
               <ol class="planif-modal__steps">
                 <li v-for="(step, idx) in activeProductModal.steps" :key="idx">
@@ -1615,10 +1462,7 @@ onBeforeUnmount(() => {
               </ol>
             </section>
 
-            <div
-              v-if="activeProductModal.categories.length"
-              class="planif-modal__badges"
-            >
+            <div v-if="activeProductModal.categories.length" class="planif-modal__badges">
               <span
                 v-for="cat in activeProductModal.categories"
                 :key="cat"
@@ -1635,28 +1479,16 @@ onBeforeUnmount(() => {
                   type="button"
                   aria-label="Retirer un exemplaire"
                   :disabled="isLocked || mutatingKey === activeProductModal.id"
-                  @click="
-                    handleChangeQuantity(
-                      cartItemByProductId.get(activeProductModal.id)!,
-                      -1,
-                    )
-                  "
+                  @click="handleChangeQuantity(cartItemByProductId.get(activeProductModal.id)!, -1)"
                 >
                   <Minus :size="15" aria-hidden="true" />
                 </button>
-                <span>{{
-                  cartItemByProductId.get(activeProductModal.id)!.quantity
-                }}</span>
+                <span>{{ cartItemByProductId.get(activeProductModal.id)!.quantity }}</span>
                 <button
                   type="button"
                   aria-label="Ajouter un exemplaire"
                   :disabled="isLocked || mutatingKey === activeProductModal.id"
-                  @click="
-                    handleChangeQuantity(
-                      cartItemByProductId.get(activeProductModal.id)!,
-                      1,
-                    )
-                  "
+                  @click="handleChangeQuantity(cartItemByProductId.get(activeProductModal.id)!, 1)"
                 >
                   <Plus :size="15" aria-hidden="true" />
                 </button>
@@ -1680,7 +1512,7 @@ onBeforeUnmount(() => {
   </section>
 </template>
 
-<style scoped>
+<style scoped lang="scss">
 .planification {
   display: flex;
   flex-direction: column;
@@ -2777,7 +2609,7 @@ onBeforeUnmount(() => {
 }
 </style>
 
-<style>
+<style lang="scss">
 .planif-flyer {
   position: fixed;
   z-index: calc(var(--q-z-toast) + 30);
@@ -2787,8 +2619,7 @@ onBeforeUnmount(() => {
   border: 2px solid var(--q-forest);
   background: var(--q-peach);
   overflow: hidden;
-  box-shadow: 0 20px 40px -10px
-    color-mix(in srgb, var(--q-forest) 50%, transparent);
+  box-shadow: 0 20px 40px -10px color-mix(in srgb, var(--q-forest) 50%, transparent);
 }
 .planif-flyer img {
   display: block;

@@ -1,30 +1,15 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
-import {
-  ArrowRight,
-  CalendarDays,
-  ChefHat,
-  Clock3,
-  UtensilsCrossed,
-} from '@lucide/vue'
+import { ArrowRight, CalendarDays, ChefHat, Clock3, UtensilsCrossed } from '@lucide/vue'
 import ScoreBadge from '@/components/ui/ScoreBadge.vue'
 import { useNextMeal } from '@/home/useNextMeal'
 
-const {
-  loading,
-  error,
-  nextMeal,
-  upcomingMeals,
-  formatMealDate,
-  formatShortDate,
-} = useNextMeal()
+const { loading, error, nextMeal, upcomingMeals, formatMealDate, formatShortDate } = useNextMeal()
 </script>
 
 <template>
   <div class="home-stage">
-    <p v-if="error" class="home-stage__error" role="alert">
-      Erreur : {{ error }}
-    </p>
+    <p v-if="error" class="home-stage__error" role="alert">Erreur : {{ error }}</p>
     <section v-if="nextMeal" class="home-stage__hero">
       <div class="home-stage__copy">
         <span class="home-stage__slot-pill">
@@ -40,11 +25,7 @@ const {
         <div class="home-stage__metrics" aria-label="Informations recette">
           <span class="home-stage__metric">
             <Clock3 :size="15" aria-hidden="true" />
-            {{
-              nextMeal.totalMinutes
-                ? `${nextMeal.totalMinutes} min`
-                : 'Durée n/d'
-            }}
+            {{ nextMeal.totalMinutes ? `${nextMeal.totalMinutes} min` : 'Durée n/d' }}
           </span>
           <ScoreBadge kind="nutri" :grade="nextMeal.nutriScore" />
           <ScoreBadge kind="eco" :grade="nextMeal.carbonScore" />
@@ -85,8 +66,7 @@ const {
                 : 'Restaurant'
           }}</span>
           <span v-if="nextMeal.ingredients.length">
-            {{ nextMeal.ingredients.length }} ingrédients ·
-            {{ nextMeal.steps.length }} étapes
+            {{ nextMeal.ingredients.length }} ingrédients · {{ nextMeal.steps.length }} étapes
           </span>
         </div>
       </div>
@@ -96,11 +76,7 @@ const {
       <div class="home-stage__copy">
         <span class="home-stage__slot-pill">Accueil Quisera</span>
         <h2 class="home-stage__title">
-          {{
-            loading
-              ? 'Chargement du prochain repas…'
-              : 'Aucun repas planifié pour le moment'
-          }}
+          {{ loading ? 'Chargement du prochain repas…' : 'Aucun repas planifié pour le moment' }}
         </h2>
         <div class="home-stage__actions">
           <RouterLink class="home-stage__cta-primary" to="/planning">
@@ -141,7 +117,7 @@ const {
   </div>
 </template>
 
-<style scoped>
+<style scoped lang="scss">
 .home-stage {
   flex: 1;
   display: grid;

@@ -11,7 +11,7 @@ import {
 const route = useRoute()
 const router = useRouter()
 
-const token = String(route.params.token ?? '')
+const token = String(route.params['token'] ?? '')
 const loading = ref(true)
 const loadError = ref('')
 const invitation = ref<PublicInvitation | null>(null)
@@ -32,9 +32,7 @@ onMounted(async () => {
     if (data.invitedName) name.value = data.invitedName
   } catch (cause) {
     loadError.value =
-      cause instanceof Error
-        ? cause.message
-        : 'Cette invitation est invalide ou a expiré.'
+      cause instanceof Error ? cause.message : 'Cette invitation est invalide ou a expiré.'
   } finally {
     loading.value = false
   }
@@ -60,9 +58,7 @@ async function submit() {
     await router.replace('/')
   } catch (cause) {
     submitError.value =
-      cause instanceof Error
-        ? cause.message
-        : 'Impossible de finaliser votre inscription.'
+      cause instanceof Error ? cause.message : 'Impossible de finaliser votre inscription.'
   } finally {
     submitting.value = false
   }
@@ -77,30 +73,24 @@ async function submit() {
         <span>Quisera</span>
       </RouterLink>
       <div class="login-brand__message">
-        <p v-if="invitation">
-          Rejoignez {{ invitation.householdName }} sur Quisera.
-        </p>
+        <p v-if="invitation">Rejoignez {{ invitation.householdName }} sur Quisera.</p>
         <p v-else>Votre invitation au foyer Quisera.</p>
       </div>
     </section>
 
     <section class="login-form-panel">
       <div class="login-form-wrap">
-        <div v-if="loading" role="status">
-          Vérification de votre invitation…
-        </div>
+        <div v-if="loading" role="status">Vérification de votre invitation…</div>
         <div v-else-if="loadError" class="invite-error-box" role="alert">
           <h1>Invitation indisponible</h1>
           <p>Erreur : {{ loadError }}</p>
-          <RouterLink class="not-found__link" to="/connexion"
-            >Retour à la connexion</RouterLink
-          >
+          <RouterLink class="not-found__link" to="/connexion">Retour à la connexion</RouterLink>
         </div>
         <template v-else-if="invitation">
           <h1>Rejoindre {{ invitation.householdName }}</h1>
           <p class="login-intro">
-            {{ invitation.invitedByName }} vous a invité à partager le planning
-            et les recettes du foyer.
+            {{ invitation.invitedByName }} vous a invité à partager le planning et les recettes du
+            foyer.
           </p>
 
           <form class="login-form" @submit.prevent="submit">
@@ -111,13 +101,7 @@ async function submit() {
 
             <label class="invite-field">
               <span>Votre nom</span>
-              <input
-                v-model="name"
-                type="text"
-                required
-                maxlength="80"
-                autocomplete="name"
-              />
+              <input v-model="name" type="text" required maxlength="80" autocomplete="name" />
             </label>
 
             <label class="invite-field">
@@ -170,34 +154,39 @@ async function submit() {
   </main>
 </template>
 
-<style scoped>
+<style scoped lang="scss">
 .invite-field {
   display: grid;
   gap: 0.35rem;
+
+  span {
+    font-size: var(--q-type-label);
+    font-weight: 700;
+    color: var(--q-forest);
+  }
+
+  input {
+    width: 100%;
+    min-height: var(--q-touch-target);
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--q-leaf);
+    border-radius: var(--q-radius-control);
+    background: var(--q-peach);
+    color: var(--q-forest);
+    font-size: 1rem;
+
+    &[readonly] {
+      background: var(--q-sage);
+      font-weight: 600;
+    }
+
+    &:focus-visible {
+      outline: 3px solid var(--q-forest);
+      outline-offset: 2px;
+    }
+  }
 }
-.invite-field span {
-  font-size: var(--q-type-label);
-  font-weight: 700;
-  color: var(--q-forest);
-}
-.invite-field input {
-  width: 100%;
-  min-height: var(--q-touch-target);
-  padding: 0.5rem 0.75rem;
-  border: 1px solid var(--q-leaf);
-  border-radius: var(--q-radius-control);
-  background: var(--q-peach);
-  color: var(--q-forest);
-  font-size: 1rem;
-}
-.invite-field input[readonly] {
-  background: var(--q-sage);
-  font-weight: 600;
-}
-.invite-field input:focus-visible {
-  outline: 3px solid var(--q-forest);
-  outline-offset: 2px;
-}
+
 .invite-error-box {
   display: grid;
   gap: var(--q-space-3);

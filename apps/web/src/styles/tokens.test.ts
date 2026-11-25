@@ -1,34 +1,33 @@
-import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import * as sass from 'sass-embedded'
 import { describe, expect, it } from 'vitest'
 
-const tokens = readFileSync(
-  resolve(dirname(fileURLToPath(import.meta.url)), 'tokens.css'),
-  'utf8',
-)
+const tokens = sass.compile(resolve(dirname(fileURLToPath(import.meta.url)), 'tokens.scss')).css
 
 function extractBlock(selector: string): string {
-  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const escaped = selector
+    .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    .replace(/'([^']+)'/g, '[\'"]?$1[\'"]?')
   const match = tokens.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`))
-  if (!match) throw new Error(`Missing CSS block: ${selector}`)
-  return match[1]
+  const body = match?.[1]
+  if (body === undefined) throw new Error(`Missing CSS block: ${selector}`)
+  return body
 }
 
 function colorFrom(block: string, token: string): string {
   const match = block.match(new RegExp(`--q-${token}:\\s*(#[0-9a-fA-F]{6});`))
-  if (!match) throw new Error(`Missing color token: --q-${token}`)
-  return match[1]
+  const value = match?.[1]
+  if (value === undefined) throw new Error(`Missing color token: --q-${token}`)
+  return value
 }
 
 function luminance(hex: string): number {
-  const [red, green, blue] = hex
+  const [red = 0, green = 0, blue = 0] = hex
     .slice(1)
     .match(/.{2}/g)!
     .map((value) => parseInt(value, 16) / 255)
-    .map((value) =>
-      value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4,
-    )
+    .map((value) => (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4))
 
   return 0.2126 * red + 0.7152 * green + 0.0722 * blue
 }
@@ -83,22 +82,16 @@ describe.each(themes)('Theme "$name" WCAG contrast', (theme) => {
     ['leaf', 'peach', 4.5],
     ['peach', 'leaf', 4.5],
     ['tomato', 'peach', 3],
-  ])(
-    '%s on %s meets its %s:1 contrast threshold',
-    (foreground, background, threshold) => {
-      expect(
-        contrast(colorFrom(block, foreground), colorFrom(block, background)),
-      ).toBeGreaterThanOrEqual(threshold)
-    },
-  )
+  ])('%s on %s meets its %s:1 contrast threshold', (foreground, background, threshold) => {
+    expect(
+      contrast(colorFrom(block, foreground), colorFrom(block, background)),
+    ).toBeGreaterThanOrEqual(threshold)
+  })
 
   if (theme.hasExplicitSidebar) {
     it('sidebar-text on sidebar-bg meets 4.5:1 contrast threshold', () => {
       expect(
-        contrast(
-          colorFrom(block, 'sidebar-text'),
-          colorFrom(block, 'sidebar-bg'),
-        ),
+        contrast(colorFrom(block, 'sidebar-text'), colorFrom(block, 'sidebar-bg')),
       ).toBeGreaterThanOrEqual(4.5)
     })
   }
