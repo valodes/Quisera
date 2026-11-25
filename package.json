@@ -10,14 +10,22 @@
     "format": "oxfmt",
     "format:check": "oxfmt --check",
     "test:unit": "pnpm --filter @quisera/shared run build && vitest run",
-    "test:e2e": "pnpm --filter @quisera/shared run build && pnpm --filter @quisera/web run test:e2e"
+    "test:e2e": "pnpm --filter @quisera/shared run build && pnpm --filter @quisera/web run test:e2e",
+    "commit": "cz"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
+    "commitizen": "^4.3.2",
+    "cz-conventional-changelog": "^3.3.0",
     "oxfmt": "^0.80.0",
     "oxlint": "^1.95.0",
     "typescript": "^6.0.3",
     "vitest": "^5.1.1"
+  },
+  "config": {
+    "commitizen": {
+      "path": "cz-conventional-changelog"
+    }
   },
   "engines": {
     "node": ">=24 <27"
