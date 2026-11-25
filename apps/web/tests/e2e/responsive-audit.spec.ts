@@ -93,9 +93,7 @@ async function mockPlanificationApi(page: Page) {
             highlights: ['Repas de fête'],
             tags: ['hiver'],
             allergens: ['Gluten', 'Lait'],
-            ingredients: [
-              { name: 'Gnocchis', quantity: '400 g', unit: null, notes: null },
-            ],
+            ingredients: [{ name: 'Gnocchis', quantity: '400 g', unit: null, notes: null }],
             steps: ['Faire revenir les champignons puis les gnocchis.'],
             filterValues: { recipe_type: ['veggie'], carbon_score: ['a'] },
           },
@@ -147,9 +145,7 @@ async function mockPlanificationApi(page: Page) {
 }
 
 for (const vp of viewports) {
-  test(`Impeccable responsive audit on ${vp.name} (${vp.width}x${vp.height})`, async ({
-    page,
-  }) => {
+  test(`Impeccable responsive audit on ${vp.name} (${vp.width}x${vp.height})`, async ({ page }) => {
     const errors: string[] = []
     page.on('pageerror', (err) => errors.push(err.message))
     page.on('console', (msg) => {

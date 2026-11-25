@@ -27,17 +27,14 @@ let auth: ReturnType<typeof createAuth>
 let app: ReturnType<typeof createApp>
 
 async function signIn(email: string, password: string) {
-  const response = await app.request(
-    'http://localhost:3131/api/auth/sign-in/email',
-    {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        origin: 'http://localhost:3131',
-      },
-      body: JSON.stringify({ email, password }),
+  const response = await app.request('http://localhost:3131/api/auth/sign-in/email', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      origin: 'http://localhost:3131',
     },
-  )
+    body: JSON.stringify({ email, password }),
+  })
   expect(response.status).toBe(200)
   return response.headers
     .getSetCookie()
@@ -74,22 +71,19 @@ describe('profile and household management', () => {
     expect(initialBody.profile.username).toBeNull()
 
     // Rejects email change without current password
-    const missingPassword = await app.request(
-      'http://localhost:3131/api/profile',
-      {
-        method: 'PATCH',
-        headers: {
-          cookie,
-          'content-type': 'application/json',
-          origin: 'http://localhost:3131',
-        },
-        body: JSON.stringify({
-          name: 'Valentin D.',
-          username: 'valentin_d',
-          email: 'new-owner@quisera.invalid',
-        }),
+    const missingPassword = await app.request('http://localhost:3131/api/profile', {
+      method: 'PATCH',
+      headers: {
+        cookie,
+        'content-type': 'application/json',
+        origin: 'http://localhost:3131',
       },
-    )
+      body: JSON.stringify({
+        name: 'Valentin D.',
+        username: 'valentin_d',
+        email: 'new-owner@quisera.invalid',
+      }),
+    })
     expect(missingPassword.status).toBe(400)
 
     // Updates name, username and email with valid password
@@ -116,28 +110,22 @@ describe('profile and household management', () => {
     expect(updatedBody.profile.email).toBe('new-owner@quisera.invalid')
 
     // Changes password and signs in with the new password
-    const changed = await app.request(
-      'http://localhost:3131/api/profile/password',
-      {
-        method: 'POST',
-        headers: {
-          cookie,
-          'content-type': 'application/json',
-          origin: 'http://localhost:3131',
-        },
-        body: JSON.stringify({
-          currentPassword: ownerAccount.password,
-          newPassword: 'brand-new-password-5678',
-          revokeOtherSessions: true,
-        }),
+    const changed = await app.request('http://localhost:3131/api/profile/password', {
+      method: 'POST',
+      headers: {
+        cookie,
+        'content-type': 'application/json',
+        origin: 'http://localhost:3131',
       },
-    )
+      body: JSON.stringify({
+        currentPassword: ownerAccount.password,
+        newPassword: 'brand-new-password-5678',
+        revokeOtherSessions: true,
+      }),
+    })
     expect(changed.status).toBe(200)
 
-    const newCookie = await signIn(
-      'new-owner@quisera.invalid',
-      'brand-new-password-5678',
-    )
+    const newCookie = await signIn('new-owner@quisera.invalid', 'brand-new-password-5678')
     expect(newCookie).toContain('better-auth.session_token=')
   })
 
@@ -145,12 +133,9 @@ describe('profile and household management', () => {
     const ownerCookie = await signIn(ownerAccount.email, ownerAccount.password)
 
     // Auto-bootstraps household for owner
-    const householdRes = await app.request(
-      'http://localhost:3131/api/household',
-      {
-        headers: { cookie: ownerCookie },
-      },
-    )
+    const householdRes = await app.request('http://localhost:3131/api/household', {
+      headers: { cookie: ownerCookie },
+    })
     expect(householdRes.status).toBe(200)
     const initialHousehold = (await householdRes.json()) as {
       household: { name: string; currentUserRole: string; members: unknown[] }
@@ -172,30 +157,25 @@ describe('profile and household management', () => {
     expect(renameRes.status).toBe(200)
 
     // Create invitation
-    const inviteRes = await app.request(
-      'http://localhost:3131/api/household/invitations',
-      {
-        method: 'POST',
-        headers: {
-          cookie: ownerCookie,
-          'content-type': 'application/json',
-          origin: 'http://localhost:3131',
-        },
-        body: JSON.stringify({
-          email: 'camille@quisera.invalid',
-          invitedName: 'Camille',
-        }),
+    const inviteRes = await app.request('http://localhost:3131/api/household/invitations', {
+      method: 'POST',
+      headers: {
+        cookie: ownerCookie,
+        'content-type': 'application/json',
+        origin: 'http://localhost:3131',
       },
-    )
+      body: JSON.stringify({
+        email: 'camille@quisera.invalid',
+        invitedName: 'Camille',
+      }),
+    })
     expect(inviteRes.status).toBe(201)
     const inviteBody = (await inviteRes.json()) as { inviteUrl: string }
     const token = inviteBody.inviteUrl.split('/invitation/')[1]
     expect(token).toBeTruthy()
 
     // Public lookup works without session
-    const lookupRes = await app.request(
-      `http://localhost:3131/api/household/invitations/${token}`,
-    )
+    const lookupRes = await app.request(`http://localhost:3131/api/household/invitations/${token}`)
     expect(lookupRes.status).toBe(200)
     const lookupBody = (await lookupRes.json()) as {
       invitation: { householdName: string; email: string }
@@ -227,16 +207,13 @@ describe('profile and household management', () => {
     expect(memberCookie).toContain('better-auth.session_token=')
 
     // Token cannot be reused
-    const reuseRes = await app.request(
-      `http://localhost:3131/api/household/invitations/${token}`,
-    )
+    const reuseRes = await app.request(`http://localhost:3131/api/household/invitations/${token}`)
     expect(reuseRes.status).toBe(404)
 
     // Household now lists both members and zero pending invitations
-    const updatedHousehold = await app.request(
-      'http://localhost:3131/api/household',
-      { headers: { cookie: memberCookie } },
-    )
+    const updatedHousehold = await app.request('http://localhost:3131/api/household', {
+      headers: { cookie: memberCookie },
+    })
     expect(updatedHousehold.status).toBe(200)
     const updatedBody = (await updatedHousehold.json()) as {
       household: {
@@ -252,9 +229,7 @@ describe('profile and household management', () => {
     expect(updatedBody.household.invitations).toHaveLength(0)
 
     // Non-owner cannot remove owner
-    const ownerMember = updatedBody.household.members.find(
-      (m) => m.role === 'owner',
-    )!
+    const ownerMember = updatedBody.household.members.find((m) => m.role === 'owner')!
     const forbiddenRemove = await app.request(
       `http://localhost:3131/api/household/members/${ownerMember.id}`,
       {

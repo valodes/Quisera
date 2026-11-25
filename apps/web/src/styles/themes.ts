@@ -1,5 +1,4 @@
-export type ThemeId =
-  'jardin' | 'catppuccin' | 'moccachino' | 'sakura' | 'nocturne' | 'foret-nuit'
+export type ThemeId = 'jardin' | 'catppuccin' | 'moccachino' | 'sakura' | 'nocturne' | 'foret-nuit'
 
 export type ThemeOption = {
   id: ThemeId
@@ -54,8 +53,7 @@ export const themeOptions: readonly ThemeOption[] = [
   {
     id: 'sakura',
     name: 'Sakura',
-    description:
-      'Fleurs de cerisier, soie rosée, matcha tendre et encre prune.',
+    description: 'Fleurs de cerisier, soie rosée, matcha tendre et encre prune.',
     mode: 'light',
     swatches: [
       { label: 'Pétale rosé', hex: '#F5DCE4' },

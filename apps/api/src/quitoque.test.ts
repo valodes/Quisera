@@ -52,8 +52,7 @@ function createFetch() {
         paginator: { nbPages: 1 },
       })
     }
-    if (url.pathname.endsWith('/shop/products/TEST-51'))
-      return Response.json({ images: [] })
+    if (url.pathname.endsWith('/shop/products/TEST-51')) return Response.json({ images: [] })
     return new Response(null, { status: 404 })
   }
   return { fetchImplementation, requested }
@@ -66,6 +65,34 @@ function capture<T>(promise: Promise<T>) {
   )
 }
 
+const slowOrderFetchImplementation: typeof fetch = async (input, init) => {
+  const url = new URL(String(input))
+  if (url.pathname.endsWith('/shop/authentication-token'))
+    return Response.json({ token: 'test-token' })
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () =>
+        resolve(
+          Response.json([
+            {
+              id: 9,
+              deliveryDate: '2026-11-18 00:00:00',
+            },
+          ]),
+        ),
+      35_000,
+    )
+    init?.signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer)
+        reject(new DOMException('Aborted', 'AbortError'))
+      },
+      { once: true },
+    )
+  })
+}
+
 describe('Quitoque delivery contracts', () => {
   afterEach(() => {
     vi.useRealTimers()
@@ -74,37 +101,10 @@ describe('Quitoque delivery contracts', () => {
 
   it('allows slow order responses to complete within the upstream budget', async () => {
     vi.useFakeTimers()
-    const fetchImplementation: typeof fetch = async (input, init) => {
-      const url = new URL(String(input))
-      if (url.pathname.endsWith('/shop/authentication-token'))
-        return Response.json({ token: 'test-token' })
-      return new Promise((resolve, reject) => {
-        const timer = setTimeout(
-          () =>
-            resolve(
-              Response.json([
-                {
-                  id: 9,
-                  deliveryDate: '2026-11-18 00:00:00',
-                },
-              ]),
-            ),
-          35_000,
-        )
-        init?.signal?.addEventListener(
-          'abort',
-          () => {
-            clearTimeout(timer)
-            reject(new DOMException('Aborted', 'AbortError'))
-          },
-          { once: true },
-        )
-      })
-    }
     const client = createQuitoqueClient({
       email: 'test@example.invalid',
       password: 'test-password',
-      fetchImplementation,
+      fetchImplementation: slowOrderFetchImplementation,
     })
 
     const result = capture(client.listDeliveries())
@@ -196,8 +196,7 @@ describe('Quitoque delivery contracts', () => {
       if (url.pathname.endsWith('/shop/authentication-token'))
         return Response.json({ token: 'test-token' })
       attempts += 1
-      if (attempts > 1)
-        return Response.json([{ id: 9, deliveryDate: '2026-11-18 00:00:00' }])
+      if (attempts > 1) return Response.json([{ id: 9, deliveryDate: '2026-11-18 00:00:00' }])
 
       const signal = init?.signal as AbortSignal
       orderSignals.push(signal)
@@ -275,15 +274,13 @@ describe('Quitoque delivery contracts', () => {
     ])
     const selected = await client.listSelectedRecipes('9')
     expect(
-      selected.map(
-        ({ title, sourceItemId, sourcePosition, occurrence, quantity }) => ({
-          title,
-          sourceItemId,
-          sourcePosition,
-          occurrence,
-          quantity,
-        }),
-      ),
+      selected.map(({ title, sourceItemId, sourcePosition, occurrence, quantity }) => ({
+        title,
+        sourceItemId,
+        sourcePosition,
+        occurrence,
+        quantity,
+      })),
     ).toEqual([
       {
         title: 'Recette contractuelle',

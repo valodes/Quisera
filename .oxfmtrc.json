@@ -1,0 +1,18 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "singleQuote": true,
+  "semi": false,
+  "trailingComma": "all",
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "coverage/**",
+    "apps/api/drizzle/meta/**",
+    ".repowise/**",
+    ".agents/**",
+    ".codex/**",
+    ".impeccable/**",
+    ".claude/**",
+    "pnpm-lock.yaml"
+  ]
+}

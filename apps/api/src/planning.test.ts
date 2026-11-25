@@ -29,9 +29,7 @@ const selections = [0, 1].map((occurrence) => ({
   difficulty: null,
   category: null,
   tags: [],
-  ingredients: [
-    { name: 'Carotte', quantity: '2', unit: 'pièces', notes: null },
-  ],
+  ingredients: [{ name: 'Carotte', quantity: '2', unit: 'pièces', notes: null }],
   steps: ['Laver les carottes.'],
   nutriScore: null,
   carbonScore: null,
@@ -68,9 +66,7 @@ async function signIn() {
     }),
   })
   expect(response.status).toBe(200)
-  return response.headers
-    .get('set-cookie')!
-    .match(/better-auth\.session_token=[^;,]+/)![0]
+  return response.headers.get('set-cookie')!.match(/better-auth\.session_token=[^;,]+/)![0]
 }
 
 beforeEach(() => {
@@ -116,9 +112,7 @@ afterEach(() => {
 
 describe('private delivery planning', () => {
   it('requires a session, anchors cycles on delivery dates and distributes selected occurrences around manual meals', async () => {
-    expect(
-      (await app.request('/api/planning?from=2026-11-01&to=2026-11-30')).status,
-    ).toBe(401)
+    expect((await app.request('/api/planning?from=2026-11-01&to=2026-11-30')).status).toBe(401)
     const cookie = await signIn()
     const rejectedOrigin = await app.request('/api/planning/quitoque/sync', {
       method: 'POST',
@@ -142,16 +136,13 @@ describe('private delivery planning', () => {
       updated: 1,
       invalidDeliveryDates: 1,
     })
-    const cyclesResponse = await app.request(
-      '/api/planning?from=2026-11-01&to=2026-11-30',
-      { headers: { cookie } },
-    )
+    const cyclesResponse = await app.request('/api/planning?from=2026-11-01&to=2026-11-30', {
+      headers: { cookie },
+    })
     const cycles = (await cyclesResponse.json()) as {
       deliveryCycles: Array<{ id: string; deliveryDate: string }>
     }
-    expect(cycles.deliveryCycles).toEqual([
-      expect.objectContaining({ deliveryDate: '2026-11-18' }),
-    ])
+    expect(cycles.deliveryCycles).toEqual([expect.objectContaining({ deliveryDate: '2026-11-18' })])
     const cycleId = cycles.deliveryCycles[0]!.id
     await app.request(`/api/planning/deliveries/${cycleId}/recipes/sync`, {
       method: 'POST',
@@ -161,10 +152,9 @@ describe('private delivery planning', () => {
       method: 'POST',
       headers: { cookie, origin: environment.APP_URL },
     })
-    const deliveryResponse = await app.request(
-      `/api/planning/deliveries/${cycleId}`,
-      { headers: { cookie } },
-    )
+    const deliveryResponse = await app.request(`/api/planning/deliveries/${cycleId}`, {
+      headers: { cookie },
+    })
     const delivery = (await deliveryResponse.json()) as {
       selections: unknown[]
     }
@@ -184,18 +174,15 @@ describe('private delivery planning', () => {
       }),
     })
     expect(manual.status).toBe(200)
-    const distributed = await app.request(
-      `/api/planning/deliveries/${cycleId}/distribute`,
-      {
-        method: 'POST',
-        headers: {
-          cookie,
-          origin: environment.APP_URL,
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({ confirmed: false }),
+    const distributed = await app.request(`/api/planning/deliveries/${cycleId}/distribute`, {
+      method: 'POST',
+      headers: {
+        cookie,
+        origin: environment.APP_URL,
+        'content-type': 'application/json',
       },
-    )
+      body: JSON.stringify({ confirmed: false }),
+    })
     expect(distributed.status).toBe(200)
     expect(await distributed.json()).toMatchObject({
       assigned: 2,
@@ -254,40 +241,33 @@ describe('private delivery planning', () => {
       }),
     })
     expect(swappedBack.status).toBe(200)
-    const needsConfirmation = await app.request(
-      `/api/planning/deliveries/${cycleId}/distribute`,
-      {
-        method: 'POST',
-        headers: {
-          cookie,
-          origin: environment.APP_URL,
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({ confirmed: false }),
+    const needsConfirmation = await app.request(`/api/planning/deliveries/${cycleId}/distribute`, {
+      method: 'POST',
+      headers: {
+        cookie,
+        origin: environment.APP_URL,
+        'content-type': 'application/json',
       },
-    )
+      body: JSON.stringify({ confirmed: false }),
+    })
     expect(needsConfirmation.status).toBe(409)
-    const redistributed = await app.request(
-      `/api/planning/deliveries/${cycleId}/distribute`,
-      {
-        method: 'POST',
-        headers: {
-          cookie,
-          origin: environment.APP_URL,
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({ confirmed: true }),
+    const redistributed = await app.request(`/api/planning/deliveries/${cycleId}/distribute`, {
+      method: 'POST',
+      headers: {
+        cookie,
+        origin: environment.APP_URL,
+        'content-type': 'application/json',
       },
-    )
+      body: JSON.stringify({ confirmed: true }),
+    })
     expect(await redistributed.json()).toMatchObject({
       assigned: 1,
       preserved: 2,
       unassigned: 0,
     })
-    const rangeResponse = await app.request(
-      '/api/planning?from=2026-11-18&to=2026-11-25',
-      { headers: { cookie } },
-    )
+    const rangeResponse = await app.request('/api/planning?from=2026-11-18&to=2026-11-25', {
+      headers: { cookie },
+    })
     const range = (await rangeResponse.json()) as {
       days: Array<{
         date: string
@@ -295,15 +275,16 @@ describe('private delivery planning', () => {
         lunch: { meal: { title: string } | null }
       }>
     }
-    expect(
-      range.days.find((day) => day.date === '2026-11-18')?.dinner.meal,
-    ).toMatchObject({ category: 'restaurant', title: 'Repas au restaurant' })
-    expect(
-      range.days.find((day) => day.date === '2026-11-19')?.lunch.meal?.title,
-    ).toBe('Sélection 2')
-    expect(
-      range.days.find((day) => day.date === '2026-11-20')?.lunch.meal?.title,
-    ).toBe('Sélection 1')
+    expect(range.days.find((day) => day.date === '2026-11-18')?.dinner.meal).toMatchObject({
+      category: 'restaurant',
+      title: 'Repas au restaurant',
+    })
+    expect(range.days.find((day) => day.date === '2026-11-19')?.lunch.meal?.title).toBe(
+      'Sélection 2',
+    )
+    expect(range.days.find((day) => day.date === '2026-11-20')?.lunch.meal?.title).toBe(
+      'Sélection 1',
+    )
     expect(range.days).toHaveLength(8)
   })
 
@@ -323,10 +304,9 @@ describe('private delivery planning', () => {
       method: 'POST',
       headers: { cookie, origin: environment.APP_URL },
     })
-    const listResponse = await app.request(
-      '/api/planning?from=2026-11-18&to=2026-11-25',
-      { headers: { cookie } },
-    )
+    const listResponse = await app.request('/api/planning?from=2026-11-18&to=2026-11-25', {
+      headers: { cookie },
+    })
     const list = (await listResponse.json()) as {
       deliveryCycles: Array<{ id: string }>
     }
@@ -335,18 +315,15 @@ describe('private delivery planning', () => {
       method: 'POST',
       headers: { cookie, origin: environment.APP_URL },
     })
-    const response = await app.request(
-      `/api/planning/deliveries/${cycleId}/distribute`,
-      {
-        method: 'POST',
-        headers: {
-          cookie,
-          origin: environment.APP_URL,
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({ confirmed: false }),
+    const response = await app.request(`/api/planning/deliveries/${cycleId}/distribute`, {
+      method: 'POST',
+      headers: {
+        cookie,
+        origin: environment.APP_URL,
+        'content-type': 'application/json',
       },
-    )
+      body: JSON.stringify({ confirmed: false }),
+    })
     expect(await response.json()).toMatchObject({
       assigned: 14,
       leftEmpty: 0,
@@ -360,11 +337,7 @@ describe('private delivery planning', () => {
       selections: Array<{ ingredientsJson: string; stepsJson: string }>
     }
     expect(snapshot.selections).toHaveLength(16)
-    expect(JSON.parse(snapshot.selections[0]!.ingredientsJson)).toEqual(
-      selections[0]!.ingredients,
-    )
-    expect(JSON.parse(snapshot.selections[0]!.stepsJson)).toEqual(
-      selections[0]!.steps,
-    )
+    expect(JSON.parse(snapshot.selections[0]!.ingredientsJson)).toEqual(selections[0]!.ingredients)
+    expect(JSON.parse(snapshot.selections[0]!.stepsJson)).toEqual(selections[0]!.steps)
   })
 })

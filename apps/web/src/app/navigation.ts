@@ -1,11 +1,4 @@
-import {
-  BookOpen,
-  CalendarDays,
-  ChefHat,
-  House,
-  Settings,
-  ShoppingBasket,
-} from '@lucide/vue'
+import { BookOpen, CalendarDays, ChefHat, House, Settings, ShoppingBasket } from '@lucide/vue'
 import type { Component } from 'vue'
 
 export type NavigationItem = {
@@ -69,10 +62,6 @@ export const navigationItems = [
   },
 ] satisfies readonly NavigationItem[]
 
-export const mobileNavigationItems = navigationItems.filter(
-  (item) => item.mobilePrimary,
-)
+export const mobileNavigationItems = navigationItems.filter((item) => item.mobilePrimary)
 
-export const settingsNavigationItem = navigationItems.find(
-  (item) => item.name === 'settings',
-)!
+export const settingsNavigationItem = navigationItems.find((item) => item.name === 'settings')!

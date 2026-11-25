@@ -31,18 +31,11 @@ async function signOut() {
       </Button>
     </DropdownMenuTrigger>
     <DropdownMenuPortal>
-      <DropdownMenuContent
-        align="end"
-        side="bottom"
-        :side-offset="8"
-        class="mobile-menu-content"
-      >
+      <DropdownMenuContent align="end" side="bottom" :side-offset="8" class="mobile-menu-content">
         <DropdownMenuItem as-child>
           <RouterLink
             :to="settingsNavigationItem.path"
-            :aria-current="
-              route.name === settingsNavigationItem.name ? 'page' : undefined
-            "
+            :aria-current="route.name === settingsNavigationItem.name ? 'page' : undefined"
             class="mobile-menu-item"
           >
             <Settings aria-hidden="true" :size="18" />

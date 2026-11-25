@@ -1,9 +1,10 @@
 import { readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
 
-const credentials = JSON.parse(
-  readFileSync(process.env.E2E_CREDENTIALS_PATH!, 'utf8'),
-) as { email: string; password: string }
+const credentials = JSON.parse(readFileSync(process.env.E2E_CREDENTIALS_PATH!, 'utf8')) as {
+  email: string
+  password: string
+}
 
 const deliveryCycle = {
   id: 'cycle-11111111-1111-4111-8111-111111111111',
@@ -105,9 +106,7 @@ test('shows the anchored 14-slot cycle and persists navigation state in the URL'
   await page.setViewportSize({ width: 1440, height: 1000 })
   await mockPlanning(page)
   await page.goto('/planning?view=week&date=2026-11-18')
-  await expect(
-    page.getByRole('heading', { level: 1, name: 'Planning' }),
-  ).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1, name: 'Planning' })).toBeVisible()
   await expect(page.getByText(/14 créneaux/)).toBeVisible()
   await expect(page.locator('.planning__slot')).toHaveCount(14)
   await page.getByText('Recette sélectionnée').click()
@@ -122,18 +121,12 @@ test('shows the anchored 14-slot cycle and persists navigation state in the URL'
   await page.getByRole('button', { name: 'Mois', exact: true }).click()
   await expect(page).toHaveURL(/view=month/)
   await expect(page.locator('.planning__month-grid button')).toHaveCount(42)
-  await page
-    .locator('.planning__month-grid button')
-    .filter({ hasText: '18' })
-    .first()
-    .click()
+  await page.locator('.planning__month-grid button').filter({ hasText: '18' }).first().click()
   await expect(page).toHaveURL(/view=day/)
   await expect(page.getByRole('heading', { name: /novembre/ })).toBeVisible()
 })
 
-test('planning remains within desktop, tablet, and mobile widths', async ({
-  page,
-}) => {
+test('planning remains within desktop, tablet, and mobile widths', async ({ page }) => {
   const viewports = [
     { width: 1440, height: 1000 },
     { width: 1024, height: 768 },
@@ -146,9 +139,7 @@ test('planning remains within desktop, tablet, and mobile widths', async ({
   await page.context().clearCookies()
   await page.goto('/connexion')
   await page.getByLabel('Adresse e-mail').fill(credentials.email)
-  await page
-    .getByLabel('Mot de passe', { exact: true })
-    .fill(credentials.password)
+  await page.getByLabel('Mot de passe', { exact: true }).fill(credentials.password)
   await page.getByRole('button', { name: 'Se connecter' }).click()
   await expect(page).toHaveURL('/')
   await mockPlanning(page)
@@ -159,13 +150,13 @@ test('planning remains within desktop, tablet, and mobile widths', async ({
     await page.setViewportSize(viewport)
     await page.getByRole('button', { name: 'Cycle', exact: true }).click()
     await expect(page.locator('.planning__slot')).toHaveCount(14)
-    expect(
-      await page.evaluate(() => document.documentElement.scrollWidth),
-    ).toBeLessThanOrEqual(viewport.width)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      viewport.width,
+    )
     await page.getByRole('button', { name: 'Mois', exact: true }).click()
     await expect(page.locator('.planning__month-grid button')).toHaveCount(42)
-    expect(
-      await page.evaluate(() => document.documentElement.scrollWidth),
-    ).toBeLessThanOrEqual(viewport.width)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      viewport.width,
+    )
   }
 })

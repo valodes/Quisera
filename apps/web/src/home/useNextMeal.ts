@@ -1,9 +1,5 @@
 import { computed, onMounted, ref } from 'vue'
-import {
-  addCivilDays,
-  parisCivilDate,
-  type PlanningRange,
-} from '@quisera/shared'
+import { addCivilDays, parisCivilDate, type PlanningRange } from '@quisera/shared'
 import { getDelivery, getPlanning, type DeliverySnapshot } from '@/planning/api'
 import { listRecipes } from '@/recipes/api'
 
@@ -35,14 +31,14 @@ function parseIngredients(value: DeliverySnapshot['ingredientsJson']) {
     return entries.flatMap((entry: unknown) => {
       if (!entry || typeof entry !== 'object') return []
       const item = entry as Record<string, unknown>
-      if (typeof item.name !== 'string') return []
-      const rawUnit = typeof item.unit === 'string' ? item.unit.trim() : null
+      if (typeof item['name'] !== 'string') return []
+      const rawUnit = typeof item['unit'] === 'string' ? item['unit'].trim() : null
       return [
         {
-          name: item.name,
-          quantity: typeof item.quantity === 'string' ? item.quantity : null,
+          name: item['name'],
+          quantity: typeof item['quantity'] === 'string' ? item['quantity'] : null,
           unit: rawUnit && rawUnit.toLowerCase() !== 'g' ? rawUnit : null,
-          notes: typeof item.notes === 'string' ? item.notes : null,
+          notes: typeof item['notes'] === 'string' ? item['notes'] : null,
         },
       ]
     })
@@ -60,6 +56,24 @@ function parseSteps(value: DeliverySnapshot['stepsJson']) {
   } catch {
     return []
   }
+}
+
+function formatMealDate(date: string) {
+  return new Intl.DateTimeFormat('fr-FR', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    timeZone: 'Europe/Paris',
+  }).format(new Date(`${date}T12:00:00`))
+}
+
+function formatShortDate(date: string) {
+  return new Intl.DateTimeFormat('fr-FR', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'Europe/Paris',
+  }).format(new Date(`${date}T12:00:00`))
 }
 
 export function useNextMeal() {
@@ -95,24 +109,6 @@ export function useNextMeal() {
     return Boolean(checkedIngredients.value[`${meal.meal.id}-${index}`])
   }
 
-  function formatMealDate(date: string) {
-    return new Intl.DateTimeFormat('fr-FR', {
-      weekday: 'long',
-      day: 'numeric',
-      month: 'long',
-      timeZone: 'Europe/Paris',
-    }).format(new Date(`${date}T12:00:00`))
-  }
-
-  function formatShortDate(date: string) {
-    return new Intl.DateTimeFormat('fr-FR', {
-      weekday: 'short',
-      day: 'numeric',
-      month: 'short',
-      timeZone: 'Europe/Paris',
-    }).format(new Date(`${date}T12:00:00`))
-  }
-
   async function load() {
     loading.value = true
     error.value = ''
@@ -136,12 +132,10 @@ export function useNextMeal() {
       ])
 
       const activeCycle =
-        [...planning.deliveryCycles]
-          .reverse()
+        planning.deliveryCycles
+          .toReversed()
           .find(
-            (cycle) =>
-              cycle.deliveryDate <= today &&
-              addCivilDays(cycle.deliveryDate, 7) >= today,
+            (cycle) => cycle.deliveryDate <= today && addCivilDays(cycle.deliveryDate, 7) >= today,
           ) ?? planning.deliveryCycles[0]
 
       const deliverySelections = activeCycle
@@ -150,25 +144,19 @@ export function useNextMeal() {
             .catch(() => [])
         : []
 
-      const selectionMap = new Map(
-        deliverySelections.map((item) => [item.id, item]),
-      )
+      const selectionMap = new Map(deliverySelections.map((item) => [item.id, item]))
       const homeMap = new Map(homeList.items.map((item) => [item.id, item]))
 
       const collected: HomeMealEntry[] = []
       for (const day of planning.days) {
         if (day.date < today) continue
         const periods: Array<'lunch' | 'dinner'> =
-          day.date === today && parisHour >= 15
-            ? ['dinner']
-            : ['lunch', 'dinner']
+          day.date === today && parisHour >= 15 ? ['dinner'] : ['lunch', 'dinner']
         for (const period of periods) {
           const meal = day[period].meal
           if (!meal) continue
           if (meal.category === 'quitoque') {
-            const sel = meal.selectionId
-              ? selectionMap.get(meal.selectionId)
-              : undefined
+            const sel = meal.selectionId ? selectionMap.get(meal.selectionId) : undefined
             collected.push({
               date: day.date,
               period,
@@ -215,9 +203,7 @@ export function useNextMeal() {
       entries.value = collected
     } catch (cause) {
       error.value =
-        cause instanceof Error
-          ? cause.message
-          : 'Impossible de charger le prochain repas.'
+        cause instanceof Error ? cause.message : 'Impossible de charger le prochain repas.'
     } finally {
       loading.value = false
     }

@@ -13,8 +13,7 @@ const route = useRoute()
 const router = useRouter()
 const session = authClient.useSession()
 const sidebarCollapsed = ref(
-  typeof window !== 'undefined' &&
-    window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === 'true',
+  typeof window !== 'undefined' && window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === 'true',
 )
 const pageTitle = computed(() =>
   typeof route.meta.title === 'string' ? route.meta.title : 'Quisera',
@@ -23,10 +22,7 @@ const pageTitle = computed(() =>
 function toggleSidebar() {
   sidebarCollapsed.value = !sidebarCollapsed.value
   if (typeof window !== 'undefined')
-    window.localStorage.setItem(
-      SIDEBAR_STORAGE_KEY,
-      String(sidebarCollapsed.value),
-    )
+    window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(sidebarCollapsed.value))
 }
 
 watch(
@@ -55,11 +51,7 @@ async function signOut() {
   <div v-else-if="!session.data" class="session-loading" role="status">
     Redirection vers la connexion…
   </div>
-  <div
-    v-else
-    class="app-shell"
-    :class="{ 'app-shell--collapsed': sidebarCollapsed }"
-  >
+  <div v-else class="app-shell" :class="{ 'app-shell--collapsed': sidebarCollapsed }">
     <a class="skip-link" href="#main-content">Aller au contenu principal</a>
 
     <aside class="app-sidebar" aria-label="Navigation de Quisera">
@@ -78,9 +70,7 @@ async function signOut() {
           class="sidebar-toggle"
           :aria-expanded="!sidebarCollapsed"
           :aria-label="
-            sidebarCollapsed
-              ? 'Agrandir la barre latérale'
-              : 'Réduire la barre latérale'
+            sidebarCollapsed ? 'Agrandir la barre latérale' : 'Réduire la barre latérale'
           "
           :title="sidebarCollapsed ? 'Agrandir le menu' : 'Réduire le menu'"
           @click="toggleSidebar"
@@ -109,19 +99,13 @@ async function signOut() {
           <span class="sidebar-account__avatar" aria-hidden="true">{{
             session.data.user.name.slice(0, 1).toUpperCase()
           }}</span>
-          <span class="sidebar-account__name">{{
-            session.data.user.name
-          }}</span>
+          <span class="sidebar-account__name">{{ session.data.user.name }}</span>
         </RouterLink>
         <button
           type="button"
           class="sidebar-sign-out"
           :aria-label="sidebarCollapsed ? 'Déconnexion' : undefined"
-          :title="
-            sidebarCollapsed
-              ? `Déconnexion (${session.data.user.name})`
-              : undefined
-          "
+          :title="sidebarCollapsed ? `Déconnexion (${session.data.user.name})` : undefined"
           @click="signOut"
         >
           <LogOut :size="18" aria-hidden="true" />
@@ -135,11 +119,7 @@ async function signOut() {
 
       <header class="app-header">
         <div class="app-header__mobile-row">
-          <RouterLink
-            class="app-brand app-brand--mobile"
-            to="/"
-            aria-label="Quisera, accueil"
-          >
+          <RouterLink class="app-brand app-brand--mobile" to="/" aria-label="Quisera, accueil">
             <span class="app-brand__mark" aria-hidden="true">Q</span>
             <span>Quisera</span>
           </RouterLink>

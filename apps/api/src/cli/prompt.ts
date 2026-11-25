@@ -23,9 +23,7 @@ export async function promptSecret(label: string): Promise<string> {
   let value = ''
   try {
     while (true) {
-      const chunk = await new Promise<string>((resolve) =>
-        stdin.once('data', resolve),
-      )
+      const chunk = await new Promise<string>((resolve) => stdin.once('data', resolve))
       for (const character of chunk) {
         if (character === '\u0003') throw new Error('Prompt cancelled.')
         if (character === '\r' || character === '\n') {

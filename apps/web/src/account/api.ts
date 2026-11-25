@@ -49,8 +49,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     credentials: 'same-origin',
     ...init,
   })
-  const payload = (await response.json().catch(() => null)) as
-    (T & { error?: string }) | null
+  const payload = (await response.json().catch(() => null)) as (T & { error?: string }) | null
   if (!response.ok) {
     throw new Error(payload?.error ?? 'Une erreur est survenue.')
   }
@@ -89,35 +88,26 @@ export async function changePassword(payload: {
 }
 
 export async function revokeOtherSessions() {
-  return request<{ ok: true; activeSessionsCount: number }>(
-    '/api/profile/sessions/revoke-others',
-    { method: 'POST' },
-  )
+  return request<{ ok: true; activeSessionsCount: number }>('/api/profile/sessions/revoke-others', {
+    method: 'POST',
+  })
 }
 
 export async function getHousehold() {
-  const result = await request<{ household: HouseholdOverview }>(
-    '/api/household',
-  )
+  const result = await request<{ household: HouseholdOverview }>('/api/household')
   return result.household
 }
 
 export async function renameHousehold(name: string) {
-  const result = await request<{ household: { id: string; name: string } }>(
-    '/api/household',
-    {
-      method: 'PATCH',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ name }),
-    },
-  )
+  const result = await request<{ household: { id: string; name: string } }>('/api/household', {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
   return result.household
 }
 
-export async function createHouseholdInvitation(payload: {
-  email: string
-  invitedName?: string
-}) {
+export async function createHouseholdInvitation(payload: { email: string; invitedName?: string }) {
   return request<{ invitation: HouseholdInvitation; inviteUrl: string }>(
     '/api/household/invitations',
     {
@@ -129,17 +119,15 @@ export async function createHouseholdInvitation(payload: {
 }
 
 export async function revokeHouseholdInvitation(id: string) {
-  return request<{ ok: true }>(
-    `/api/household/invitations/${encodeURIComponent(id)}`,
-    { method: 'DELETE' },
-  )
+  return request<{ ok: true }>(`/api/household/invitations/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  })
 }
 
 export async function removeHouseholdMember(userId: string) {
-  return request<{ ok: true }>(
-    `/api/household/members/${encodeURIComponent(userId)}`,
-    { method: 'DELETE' },
-  )
+  return request<{ ok: true }>(`/api/household/members/${encodeURIComponent(userId)}`, {
+    method: 'DELETE',
+  })
 }
 
 export async function getPublicInvitation(token: string) {

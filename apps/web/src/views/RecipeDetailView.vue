@@ -32,10 +32,9 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    recipe.value = await getRecipe(String(route.params.id))
+    recipe.value = await getRecipe(String(route.params['id']))
   } catch (cause) {
-    error.value =
-      cause instanceof Error ? cause.message : 'Recette indisponible.'
+    error.value = cause instanceof Error ? cause.message : 'Recette indisponible.'
   } finally {
     loading.value = false
   }
@@ -47,22 +46,19 @@ async function toggleFavorite() {
     await setFavorite(recipe.value.id, !recipe.value.isFavorite)
     await load()
   } catch (cause) {
-    error.value =
-      cause instanceof Error ? cause.message : 'Favori indisponible.'
+    error.value = cause instanceof Error ? cause.message : 'Favori indisponible.'
   } finally {
     pending.value = false
   }
 }
 async function removeRecipe() {
-  if (!recipe.value || !window.confirm('Supprimer cette recette maison ?'))
-    return
+  if (!recipe.value || !window.confirm('Supprimer cette recette maison ?')) return
   pending.value = true
   try {
     await deleteRecipe(recipe.value.id)
     await router.replace('/recettes')
   } catch (cause) {
-    error.value =
-      cause instanceof Error ? cause.message : 'Suppression impossible.'
+    error.value = cause instanceof Error ? cause.message : 'Suppression impossible.'
   } finally {
     pending.value = false
   }
@@ -73,34 +69,23 @@ onMounted(load)
 <template>
   <section class="recipe-detail">
     <RouterLink class="recipe-back" to="/recettes"
-      ><ArrowLeft :size="18" aria-hidden="true" /> Retour aux
-      recettes</RouterLink
+      ><ArrowLeft :size="18" aria-hidden="true" /> Retour aux recettes</RouterLink
     >
-    <p v-if="loading" class="recipe-state" role="status">
-      Chargement de la recette…
-    </p>
-    <div
-      v-else-if="error && !recipe"
-      class="recipe-state recipe-state--error"
-      role="alert"
-    >
+    <p v-if="loading" class="recipe-state" role="status">Chargement de la recette…</p>
+    <div v-else-if="error && !recipe" class="recipe-state recipe-state--error" role="alert">
       {{ error }}
     </div>
     <template v-else-if="recipe">
       <div class="recipe-detail__top">
         <div>
           <p class="recipe-card__source">
-            {{
-              recipe.source === 'house' ? 'Recette maison' : 'Recette Quitoque'
-            }}
+            {{ recipe.source === 'house' ? 'Recette maison' : 'Recette Quitoque' }}
           </p>
           <h2>{{ recipe.title }}</h2>
         </div>
         <div class="recipe-detail__actions">
           <IconButton
-            :label="
-              recipe.isFavorite ? 'Retirer des favoris' : 'Ajouter aux favoris'
-            "
+            :label="recipe.isFavorite ? 'Retirer des favoris' : 'Ajouter aux favoris'"
             :disabled="pending"
             :aria-pressed="recipe.isFavorite"
             @click="toggleFavorite"
@@ -142,44 +127,31 @@ onMounted(load)
       <div class="recipe-detail__facts">
         <span
           ><Clock3 :size="17" aria-hidden="true" />{{
-            recipe.totalMinutes
-              ? `${recipe.totalMinutes} min`
-              : 'Durée non disponible'
+            recipe.totalMinutes ? `${recipe.totalMinutes} min` : 'Durée non disponible'
           }}</span
-        ><span
-          ><Star :size="17" aria-hidden="true" />{{
-            difficultyLabel(recipe.difficulty)
-          }}</span
+        ><span><Star :size="17" aria-hidden="true" />{{ difficultyLabel(recipe.difficulty) }}</span
         ><span
           >Nutri-Score :
           {{
-            recipe.metrics.find((metric) => metric.key === 'nutriScore')
-              ?.value ?? 'Non disponible'
+            recipe.metrics.find((metric) => metric.key === 'nutriScore')?.value ?? 'Non disponible'
           }}</span
         ><span
           >Score carbone :
           {{
-            recipe.metrics.find((metric) => metric.key === 'carbonScore')
-              ?.value ?? 'Non disponible'
+            recipe.metrics.find((metric) => metric.key === 'carbonScore')?.value ?? 'Non disponible'
           }}</span
         >
       </div>
       <div
-        v-if="
-          recipe.metrics.some((metric) => metric.provenance || metric.method)
-        "
+        v-if="recipe.metrics.some((metric) => metric.provenance || metric.method)"
         class="recipe-detail__metric-notes"
       >
         <p
-          v-for="metric in recipe.metrics.filter(
-            (item) => item.provenance || item.method,
-          )"
+          v-for="metric in recipe.metrics.filter((item) => item.provenance || item.method)"
           :key="metric.key"
         >
           <strong>{{ metricLabel(metric.key) }} :</strong>
-          <span v-if="metric.provenance">
-            Source : {{ metric.provenance }}.</span
-          >
+          <span v-if="metric.provenance"> Source : {{ metric.provenance }}.</span>
           <span v-if="metric.method"> Méthode : {{ metric.method }}.</span>
         </p>
       </div>

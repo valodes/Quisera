@@ -57,12 +57,8 @@ describe('TextInput', () => {
 
     expect(wrapper.get('label').attributes('for')).toBe('email')
     expect(wrapper.get('input').attributes('aria-invalid')).toBe('true')
-    expect(wrapper.get('input').attributes('aria-describedby')).toBe(
-      'email-help email-error',
-    )
-    expect(wrapper.get('[role="alert"]').text()).toBe(
-      'Erreur : Adresse invalide.',
-    )
+    expect(wrapper.get('input').attributes('aria-describedby')).toBe('email-help email-error')
+    expect(wrapper.get('[role="alert"]').text()).toBe('Erreur : Adresse invalide.')
   })
 })
 

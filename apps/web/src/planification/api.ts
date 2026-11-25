@@ -129,12 +129,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     credentials: 'same-origin',
     ...init,
   })
-  const payload = (await response.json().catch(() => null)) as
-    (T & { error?: string }) | null
+  const payload = (await response.json().catch(() => null)) as (T & { error?: string }) | null
   if (!response.ok) {
-    throw new Error(
-      payload?.error ?? 'La planification Quitoque est indisponible.',
-    )
+    throw new Error(payload?.error ?? 'La planification Quitoque est indisponible.')
   }
   return payload as T
 }
@@ -144,20 +141,12 @@ export async function listUpcomingWeeks() {
   return res.weeks
 }
 
-export async function getWeekCatalog(
-  start: string,
-  end: string,
-  section: PlanificationSection,
-) {
+export async function getWeekCatalog(start: string, end: string, section: PlanificationSection) {
   const query = new URLSearchParams({ start, end, section })
   return request<WeekCatalogResponse>(`/catalog?${query}`)
 }
 
-export async function addBoxItem(
-  orderId: string,
-  variantCode: string,
-  quantity = 1,
-) {
+export async function addBoxItem(orderId: string, variantCode: string, quantity = 1) {
   const res = await request<{ week: UpcomingBoxWeek }>(
     `/weeks/${encodeURIComponent(orderId)}/items`,
     {
@@ -169,11 +158,7 @@ export async function addBoxItem(
   return res.week
 }
 
-export async function updateBoxItemQuantity(
-  orderId: string,
-  itemId: string,
-  quantity: number,
-) {
+export async function updateBoxItemQuantity(orderId: string, itemId: string, quantity: number) {
   const res = await request<{ week: UpcomingBoxWeek }>(
     `/weeks/${encodeURIComponent(orderId)}/items/${encodeURIComponent(itemId)}`,
     {
@@ -193,10 +178,7 @@ export async function removeBoxItem(orderId: string, itemId: string) {
   return res.week
 }
 
-export async function getDeliveryTimeSlots(
-  postalCode: string,
-  startDate: string,
-) {
+export async function getDeliveryTimeSlots(postalCode: string, startDate: string) {
   const query = new URLSearchParams({ postalCode, startDate })
   return request<{
     deliveryDates: string[]
@@ -238,10 +220,7 @@ export async function updateBoxDeliverySlot(
   return res.week
 }
 
-export async function applyBoxCoupon(
-  orderId: string,
-  couponCode: string | null,
-) {
+export async function applyBoxCoupon(orderId: string, couponCode: string | null) {
   const res = await request<{ week: UpcomingBoxWeek }>(
     `/weeks/${encodeURIComponent(orderId)}/coupon`,
     {
@@ -267,8 +246,6 @@ export async function toggleBoxWallet(orderId: string, useWallet: boolean) {
 
 export async function geocodeAddress(query: string) {
   const params = new URLSearchParams({ q: query })
-  const res = await request<{ coords: { lat: number; lon: number } | null }>(
-    `/geocode?${params}`,
-  )
+  const res = await request<{ coords: { lat: number; lon: number } | null }>(`/geocode?${params}`)
   return res.coords
 }

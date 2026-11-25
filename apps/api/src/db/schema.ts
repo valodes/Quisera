@@ -1,12 +1,5 @@
 import { relations } from 'drizzle-orm'
-import {
-  index,
-  integer,
-  primaryKey,
-  sqliteTable,
-  text,
-  uniqueIndex,
-} from 'drizzle-orm/sqlite-core'
+import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
 export const user = sqliteTable(
   'user',
@@ -15,9 +8,7 @@ export const user = sqliteTable(
     name: text('name').notNull(),
     username: text('username'),
     email: text('email').notNull(),
-    emailVerified: integer('emailVerified', { mode: 'boolean' })
-      .notNull()
-      .default(false),
+    emailVerified: integer('emailVerified', { mode: 'boolean' }).notNull().default(false),
     image: text('image'),
     createdAt: integer('createdAt', { mode: 'timestamp_ms' }).notNull(),
     updatedAt: integer('updatedAt', { mode: 'timestamp_ms' }).notNull(),
@@ -78,10 +69,7 @@ export const account = sqliteTable(
   },
   (table) => [
     index('account_user_id_idx').on(table.userId),
-    uniqueIndex('account_provider_account_unique').on(
-      table.providerId,
-      table.accountId,
-    ),
+    uniqueIndex('account_provider_account_unique').on(table.providerId, table.accountId),
   ],
 )
 
@@ -128,11 +116,7 @@ export const recipe = sqliteTable(
     updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
   },
   (table) => [
-    index('recipe_source_created_idx').on(
-      table.source,
-      table.createdAt,
-      table.id,
-    ),
+    index('recipe_source_created_idx').on(table.source, table.createdAt, table.id),
     index('recipe_title_idx').on(table.title),
   ],
 )
@@ -151,9 +135,7 @@ export const deliveryCycle = sqliteTable(
     updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
   },
   (table) => [
-    uniqueIndex('delivery_cycle_external_order_unique').on(
-      table.externalOrderId,
-    ),
+    uniqueIndex('delivery_cycle_external_order_unique').on(table.externalOrderId),
     index('delivery_cycle_date_idx').on(table.deliveryDate, table.id),
   ],
 )
@@ -170,9 +152,7 @@ export const deliverySelection = sqliteTable(
     sourcePosition: integer('source_position').notNull(),
     occurrence: integer('occurrence').notNull(),
     quantity: integer('quantity').notNull(),
-    isAvailable: integer('is_available', { mode: 'boolean' })
-      .notNull()
-      .default(true),
+    isAvailable: integer('is_available', { mode: 'boolean' }).notNull().default(true),
     title: text('title').notNull(),
     description: text('description'),
     photoUrl: text('photo_url'),
@@ -211,14 +191,12 @@ export const plannedMeal = sqliteTable(
     origin: text('origin', { enum: ['manual', 'automatic'] })
       .notNull()
       .default('manual'),
-    deliveryCycleId: text('delivery_cycle_id').references(
-      () => deliveryCycle.id,
-      { onDelete: 'restrict' },
-    ),
-    deliverySelectionId: text('delivery_selection_id').references(
-      () => deliverySelection.id,
-      { onDelete: 'restrict' },
-    ),
+    deliveryCycleId: text('delivery_cycle_id').references(() => deliveryCycle.id, {
+      onDelete: 'restrict',
+    }),
+    deliverySelectionId: text('delivery_selection_id').references(() => deliverySelection.id, {
+      onDelete: 'restrict',
+    }),
     homeRecipeId: text('home_recipe_id').references(() => recipe.id, {
       onDelete: 'restrict',
     }),
@@ -230,11 +208,7 @@ export const plannedMeal = sqliteTable(
   (table) => [
     uniqueIndex('planned_meal_slot_unique').on(table.date, table.period),
     uniqueIndex('planned_meal_selection_unique').on(table.deliverySelectionId),
-    index('planned_meal_cycle_idx').on(
-      table.deliveryCycleId,
-      table.date,
-      table.period,
-    ),
+    index('planned_meal_cycle_idx').on(table.deliveryCycleId, table.date, table.period),
     index('planned_meal_home_recipe_idx').on(table.homeRecipeId),
   ],
 )
@@ -251,12 +225,7 @@ export const recipeExternalReference = sqliteTable(
     externalId: text('external_id').notNull(),
     lastSyncedAt: integer('last_synced_at', { mode: 'timestamp_ms' }),
   },
-  (table) => [
-    uniqueIndex('recipe_external_source_id_unique').on(
-      table.source,
-      table.externalId,
-    ),
-  ],
+  (table) => [uniqueIndex('recipe_external_source_id_unique').on(table.source, table.externalId)],
 )
 
 export const recipeIngredient = sqliteTable(
@@ -272,12 +241,7 @@ export const recipeIngredient = sqliteTable(
     unit: text('unit'),
     notes: text('notes'),
   },
-  (table) => [
-    uniqueIndex('recipe_ingredient_position_unique').on(
-      table.recipeId,
-      table.position,
-    ),
-  ],
+  (table) => [uniqueIndex('recipe_ingredient_position_unique').on(table.recipeId, table.position)],
 )
 
 export const recipeStep = sqliteTable(
@@ -290,12 +254,7 @@ export const recipeStep = sqliteTable(
     position: integer('position').notNull(),
     instructions: text('instructions').notNull(),
   },
-  (table) => [
-    uniqueIndex('recipe_step_position_unique').on(
-      table.recipeId,
-      table.position,
-    ),
-  ],
+  (table) => [uniqueIndex('recipe_step_position_unique').on(table.recipeId, table.position)],
 )
 
 export const recipeTag = sqliteTable(
@@ -307,10 +266,7 @@ export const recipeTag = sqliteTable(
     normalizedName: text('normalized_name').notNull(),
   },
   (table) => [
-    uniqueIndex('recipe_tag_kind_name_unique').on(
-      table.kind,
-      table.normalizedName,
-    ),
+    uniqueIndex('recipe_tag_kind_name_unique').on(table.kind, table.normalizedName),
     index('recipe_tag_name_idx').on(table.normalizedName),
   ],
 )
@@ -342,9 +298,7 @@ export const recipeMetric = sqliteTable(
     method: text('method'),
     recordedAt: integer('recorded_at', { mode: 'timestamp_ms' }),
   },
-  (table) => [
-    uniqueIndex('recipe_metric_key_unique').on(table.recipeId, table.key),
-  ],
+  (table) => [uniqueIndex('recipe_metric_key_unique').on(table.recipeId, table.key)],
 )
 
 export const recipeFavorite = sqliteTable(
@@ -421,10 +375,7 @@ export const householdInvitation = sqliteTable(
   },
   (table) => [
     uniqueIndex('household_invitation_token_unique').on(table.tokenHash),
-    index('household_invitation_household_status_idx').on(
-      table.householdId,
-      table.status,
-    ),
+    index('household_invitation_household_status_idx').on(table.householdId, table.status),
   ],
 )
 
