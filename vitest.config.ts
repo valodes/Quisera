@@ -6,10 +6,7 @@ export default defineConfig({
   resolve: webConfig.resolve,
   test: {
     environment: 'happy-dom',
-    include: [
-      'apps/**/*.{test,spec}.{js,ts}',
-      'packages/**/*.{test,spec}.{js,ts}',
-    ],
+    include: ['apps/**/*.{test,spec}.{js,ts}', 'packages/**/*.{test,spec}.{js,ts}'],
     exclude: ['**/node_modules/**', 'apps/**/tests/e2e/**'],
   },
 })

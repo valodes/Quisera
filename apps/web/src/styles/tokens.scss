@@ -1,0 +1,179 @@
+// Quisera's palette is the single source of truth for all visual colors.
+$themes: (
+  'catppuccin': (
+    'scheme': light,
+    'forest': #2f3246,
+    'terracotta': #c4364e,
+    'leaf': #555873,
+    'sage': #e6e9ef,
+    'peach': #eff1f5,
+    'shoot': #d9d2f8,
+    'coral': #f5c2b4,
+    'tomato': #d20f39,
+    'sidebar-bg': #2f3246,
+    'sidebar-text': #eff1f5,
+    'board-bg': #555873,
+  ),
+  'moccachino': (
+    'scheme': light,
+    'forest': #3b2314,
+    'terracotta': #a64b2a,
+    'leaf': #6e4730,
+    'sage': #e8ddd1,
+    'peach': #f7f1e9,
+    'shoot': #e8c9a1,
+    'coral': #dfa684,
+    'tomato': #c8432b,
+    'sidebar-bg': #3b2314,
+    'sidebar-text': #f7f1e9,
+    'board-bg': #6e4730,
+  ),
+  'sakura': (
+    'scheme': light,
+    'forest': #3d1a2b,
+    'terracotta': #b83b5e,
+    'leaf': #7d3b59,
+    'sage': #f5dce4,
+    'peach': #fdf2f6,
+    'shoot': #e6e8b8,
+    'coral': #f4a7be,
+    'tomato': #c93356,
+    'sidebar-bg': #3d1a2b,
+    'sidebar-text': #fdf2f6,
+    'board-bg': #7d3b59,
+  ),
+  'nocturne': (
+    'scheme': dark,
+    'forest': #e6ecff,
+    'terracotta': #f38ba8,
+    'leaf': #9aa8d6,
+    'sage': #181825,
+    'peach': #242538,
+    'shoot': #2f4538,
+    'coral': #5a3348,
+    'tomato': #f38ba8,
+    'sidebar-bg': #11111b,
+    'sidebar-text': #e6ecff,
+    'board-bg': #11111b,
+  ),
+  'foret-nuit': (
+    'scheme': dark,
+    'forest': #e8f3e6,
+    'terracotta': #f08262,
+    'leaf': #8cc4a3,
+    'sage': #101e18,
+    'peach': #192d24,
+    'shoot': #2d4a2b,
+    'coral': #633526,
+    'tomato': #f57b6e,
+    'sidebar-bg': #0a1410,
+    'sidebar-text': #e8f3e6,
+    'board-bg': #0a1410,
+  ),
+);
+
+:root {
+  color-scheme: light;
+
+  --q-forest: #173d2c;
+  --q-terracotta: #c74832;
+  --q-leaf: #2f744e;
+  --q-sage: #d7e8d6;
+  --q-peach: #fce3d8;
+  --q-shoot: #daf097;
+  --q-coral: #f08262;
+  --q-tomato: #e74d43;
+  --q-sidebar-bg: var(--q-forest);
+  --q-sidebar-text: var(--q-peach);
+  --q-board-bg: var(--q-leaf);
+
+  --q-canvas: var(--q-sage);
+  --q-surface: var(--q-peach);
+  --q-surface-secondary: var(--q-shoot);
+  --q-surface-accent: var(--q-coral);
+  --q-text: var(--q-forest);
+  --q-text-secondary: var(--q-leaf);
+  --q-border: var(--q-leaf);
+  --q-action: var(--q-forest);
+  --q-action-hover: var(--q-leaf);
+  --q-action-text: var(--q-peach);
+  --q-focus: var(--q-forest);
+  --q-info: var(--q-sage);
+  --q-success: var(--q-leaf);
+  --q-success-text: var(--q-peach);
+  --q-warning: var(--q-shoot);
+  --q-error: var(--q-peach);
+  --q-error-border: var(--q-tomato);
+
+  --q-font-display: 'Manrope Variable', 'Manrope', sans-serif;
+  --q-font-body: 'DM Sans Variable', 'DM Sans', sans-serif;
+
+  --q-type-display: clamp(3rem, 7vw, 5.5rem);
+  --q-type-h1: clamp(2.5rem, 5vw, 4rem);
+  --q-type-h2: clamp(2rem, 4vw, 3rem);
+  --q-type-h3: clamp(1.5rem, 3vw, 2rem);
+  --q-type-h4: 1.25rem;
+  --q-type-component: 1.125rem;
+  --q-type-body-large: 1.125rem;
+  --q-type-body: 1rem;
+  --q-type-body-small: 0.875rem;
+  --q-type-label: 0.875rem;
+  --q-type-metadata: 0.75rem;
+  --q-type-button: 0.9375rem;
+  --q-type-indicator: 1rem;
+  --q-line-display: 1.02;
+  --q-line-heading: 1.12;
+  --q-line-body: 1.5;
+  --q-line-compact: 1.25;
+
+  --q-space-1: 0.25rem;
+  --q-space-2: 0.5rem;
+  --q-space-3: 0.75rem;
+  --q-space-4: 1rem;
+  --q-space-6: 1.5rem;
+  --q-space-8: 2rem;
+  --q-space-12: 3rem;
+  --q-container-reading: 42rem;
+  --q-container-content: 80rem;
+  --q-radius-control: 4px;
+  --q-radius-card: 8px;
+  --q-touch-target: 44px;
+  --q-duration-fast: 140ms;
+  --q-duration-normal: 220ms;
+  --q-ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --q-z-popover: 20;
+  --q-z-toast: 50;
+
+  --background: var(--q-canvas);
+  --foreground: var(--q-text);
+  --card: var(--q-surface);
+  --card-foreground: var(--q-text);
+  --popover: var(--q-surface-secondary);
+  --popover-foreground: var(--q-text);
+  --primary: var(--q-action);
+  --primary-foreground: var(--q-action-text);
+  --secondary: var(--q-surface-secondary);
+  --secondary-foreground: var(--q-text);
+  --muted: var(--q-info);
+  --muted-foreground: var(--q-text-secondary);
+  --accent: var(--q-surface-accent);
+  --accent-foreground: var(--q-text);
+  --destructive: var(--q-error);
+  --destructive-foreground: var(--q-text);
+  --border: var(--q-border);
+  --input: var(--q-border);
+  --ring: var(--q-focus);
+  --radius: var(--q-radius-control);
+}
+
+@each $name, $palette in $themes {
+  :root[data-theme='#{$name}'] {
+    @each $key, $value in $palette {
+      @if $key == 'scheme' {
+        color-scheme: $value;
+      } @else {
+        --q-#{$key}: #{$value};
+      }
+    }
+  }
+}

@@ -28,6 +28,12 @@ services:
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET to a random secret}
       QUITOQUE_MAIL: ${QUITOQUE_MAIL:-}
       QUITOQUE_MAIL_PASSWORD: ${QUITOQUE_MAIL_PASSWORD:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
       SQLITE_PATH: /data/quisera.sqlite
       RECIPE_UPLOAD_DIR: /data/recipe-photos
       API_HOST: 0.0.0.0

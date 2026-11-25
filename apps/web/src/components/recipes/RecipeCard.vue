@@ -4,14 +4,12 @@ import { RouterLink } from 'vue-router'
 import { Clock3, Heart, Leaf, Star } from '@lucide/vue'
 import type { RecipeSummary } from '@quisera/shared'
 import IconButton from '@/components/ui/IconButton.vue'
+import ScoreBadge from '@/components/ui/ScoreBadge.vue'
 import { setFavorite } from '@/recipes/api'
 
-const props = withDefaults(
-  defineProps<{ recipe: RecipeSummary; horizontal?: boolean }>(),
-  {
-    horizontal: false,
-  },
-)
+const props = withDefaults(defineProps<{ recipe: RecipeSummary; horizontal?: boolean }>(), {
+  horizontal: false,
+})
 const emit = defineEmits<{ changed: [] }>()
 const pending = defineModel<boolean>('pending', { default: false })
 const actionError = ref('')
@@ -38,10 +36,7 @@ async function toggleFavorite() {
 </script>
 
 <template>
-  <article
-    class="recipe-card"
-    :class="{ 'recipe-card--horizontal': horizontal }"
-  >
+  <article class="recipe-card" :class="{ 'recipe-card--horizontal': horizontal }">
     <RouterLink
       class="recipe-card__open"
       :to="`/recettes/${recipe.id}`"
@@ -54,12 +49,7 @@ async function toggleFavorite() {
           :alt="`Photographie de ${recipe.title}`"
           loading="lazy"
         />
-        <span
-          v-else
-          class="recipe-card__photo-empty"
-          role="img"
-          aria-label="Photo non disponible"
-        >
+        <span v-else class="recipe-card__photo-empty" role="img" aria-label="Photo non disponible">
           <Leaf :size="25" aria-hidden="true" />
           <span aria-hidden="true">Photo non disponible</span>
         </span>
@@ -75,29 +65,21 @@ async function toggleFavorite() {
         <div class="recipe-card__metadata">
           <span
             ><Clock3 :size="16" aria-hidden="true" />{{
-              recipe.totalMinutes
-                ? `${recipe.totalMinutes} min`
-                : 'Durée non disponible'
+              recipe.totalMinutes ? `${recipe.totalMinutes} min` : 'Durée non disponible'
             }}</span
           >
           <span
             ><Star :size="16" aria-hidden="true" />{{
               recipe.difficulty
-                ? ({ easy: 'Facile', medium: 'Moyenne', hard: 'Difficile' }[
-                    recipe.difficulty
-                  ] ?? recipe.difficulty)
+                ? ({ easy: 'Facile', medium: 'Moyenne', hard: 'Difficile' }[recipe.difficulty] ??
+                  recipe.difficulty)
                 : 'Difficulté non disponible'
             }}</span
           >
         </div>
         <div class="recipe-card__scores">
-          <span
-            ><b>Nutri-Score</b>{{ nutriScore?.value ?? 'Non disponible' }}</span
-          >
-          <span
-            ><b>Score carbone</b
-            >{{ carbonScore?.value ?? 'Non disponible' }}</span
-          >
+          <ScoreBadge kind="nutri" :grade="nutriScore?.value" />
+          <ScoreBadge kind="eco" :grade="carbonScore?.value" />
         </div>
       </div>
     </RouterLink>
@@ -108,11 +90,7 @@ async function toggleFavorite() {
       :aria-pressed="recipe.isFavorite"
       @click="toggleFavorite"
     >
-      <Heart
-        :size="20"
-        :fill="recipe.isFavorite ? 'currentColor' : 'none'"
-        aria-hidden="true"
-      />
+      <Heart :size="20" :fill="recipe.isFavorite ? 'currentColor' : 'none'" aria-hidden="true" />
     </IconButton>
     <span v-if="actionError" class="recipe-card__action-error" role="alert">
       {{ actionError }}

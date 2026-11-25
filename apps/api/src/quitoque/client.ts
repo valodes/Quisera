@@ -94,9 +94,7 @@ const orderItemSchema = z
                 }),
               )
               .optional(),
-            images: z
-              .array(z.object({ path: z.string().min(1) }).passthrough())
-              .optional(),
+            images: z.array(z.object({ path: z.string().min(1) }).passthrough()).optional(),
           })
           .passthrough()
           .nullable()
@@ -126,9 +124,7 @@ const productImageSchema = z
 const productDetailsSchema = z
   .object({ images: z.array(productImageSchema).optional() })
   .passthrough()
-const productImageVariantSchema = z
-  .object({ path: z.string().min(1) })
-  .passthrough()
+const productImageVariantSchema = z.object({ path: z.string().min(1) }).passthrough()
 
 const ingredientSchema = z
   .object({
@@ -157,6 +153,7 @@ export type ImportedRecipe = {
   }>
   steps: string[]
   nutriScore: string | null
+  carbonScore: string | null
 }
 
 export type QuitoqueDelivery = {
@@ -197,10 +194,10 @@ function decodeJson(value: unknown): unknown {
 }
 
 function parseIngredients(product: Record<string, unknown>) {
-  const value = decodeJson(product.ingredients)
+  const value = decodeJson(product['ingredients'])
   const standard =
     value && typeof value === 'object' && !Array.isArray(value)
-      ? (value as Record<string, unknown>).standard
+      ? (value as Record<string, unknown>)['standard']
       : undefined
   let ingredients: ImportedRecipe['ingredients'] = []
   if (standard !== undefined) {
@@ -208,27 +205,26 @@ function parseIngredients(product: Record<string, unknown>) {
     if (!items.success) {
       throw new QuitoqueApiError('Les ingrédients Quitoque sont mal formés.')
     }
-    ingredients = items.data.map((ingredient) => ({
-      name: ingredient.name,
-      quantity:
-        ingredient.quantity === null || ingredient.quantity === undefined
-          ? null
-          : String(ingredient.quantity),
-      unit: ingredient.unit ?? null,
-      notes: null,
-    }))
+    ingredients = items.data.map((ingredient) => {
+      const rawUnit = ingredient.unit?.trim() ?? null
+      return {
+        name: ingredient.name,
+        quantity:
+          ingredient.quantity === null || ingredient.quantity === undefined
+            ? null
+            : String(ingredient.quantity),
+        unit: rawUnit && rawUnit.toLowerCase() !== 'g' ? rawUnit : null,
+        notes: null,
+      }
+    })
   }
 
-  const cupboard = decodeJson(product.cupboard_ingredients)
+  const cupboard = decodeJson(product['cupboard_ingredients'])
   if (Array.isArray(cupboard)) {
     for (const candidate of cupboard) {
-      const parsed = z
-        .object({ name: z.string().trim().min(1) })
-        .safeParse(candidate)
+      const parsed = z.object({ name: z.string().trim().min(1) }).safeParse(candidate)
       if (!parsed.success) {
-        throw new QuitoqueApiError(
-          'Les ingrédients de placard Quitoque sont mal formés.',
-        )
+        throw new QuitoqueApiError('Les ingrédients de placard Quitoque sont mal formés.')
       }
       ingredients.push({
         name: parsed.data.name,
@@ -243,14 +239,12 @@ function parseIngredients(product: Record<string, unknown>) {
 
 function parseSteps(value: unknown) {
   const decoded = decodeJson(value)
-  if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded))
-    return []
-  const localized = (decoded as Record<string, unknown>).Default
-  if (!localized || typeof localized !== 'object' || Array.isArray(localized))
-    return []
+  if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) return []
+  const localized = (decoded as Record<string, unknown>)['Default']
+  if (!localized || typeof localized !== 'object' || Array.isArray(localized)) return []
   const entries = Object.entries(localized as Record<string, unknown>)
     .filter(([key]) => key !== 'conclusion')
-    .sort(([left], [right]) => Number(left) - Number(right))
+    .toSorted(([left], [right]) => Number(left) - Number(right))
   const steps: string[] = []
   for (const [, candidate] of entries) {
     const parsed = z
@@ -278,10 +272,23 @@ function parseMinutes(value: unknown): number | null {
   return match ? Number(match[1]) : null
 }
 
-function parseNutriScore(value: unknown): string | null {
+function parseScoreGrade(value: unknown): string | null {
+  if (typeof value === 'string') {
+    const grade = value.trim().toUpperCase()
+    return /^[A-E]$/.test(grade) ? grade : null
+  }
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const grade = Object.keys(value)[0]?.toUpperCase()
-  return grade && /^[A-E]$/.test(grade) ? grade : null
+  const record = value as Record<string, unknown>
+  for (const candidate of [
+    Object.keys(record)[0],
+    typeof record['grade'] === 'string' ? record['grade'] : undefined,
+    typeof record['value'] === 'string' ? record['value'] : undefined,
+    typeof record['label'] === 'string' ? record['label'] : undefined,
+  ]) {
+    const grade = candidate?.trim().toUpperCase()
+    if (grade && /^[A-E]$/.test(grade)) return grade
+  }
+  return null
 }
 
 function parseLabelList(value: unknown, field: string) {
@@ -321,9 +328,7 @@ function parseProduct(
     })
     .safeParse(product)
   if (!identity.success || !Object.hasOwn(identity.data.family, 'recipe')) {
-    throw new QuitoqueApiError(
-      'Une recette Quitoque ne respecte pas le contrat observé.',
-    )
+    throw new QuitoqueApiError('Une recette Quitoque ne respecte pas le contrat observé.')
   }
 
   return {
@@ -331,19 +336,43 @@ function parseProduct(
     productId: String(identity.data.id),
     title: identity.data.name,
     description:
-      typeof product.description === 'string' && product.description.trim()
-        ? product.description.trim()
+      typeof product['description'] === 'string' && product['description'].trim()
+        ? product['description'].trim()
         : null,
     imageUrl,
     thumbnailUrl,
-    totalMinutes: parseMinutes(product.total_time),
+    totalMinutes: parseMinutes(product['total_time']),
     difficulty: null,
-    category: parseLabelList(product.categories, 'catégories')[0] ?? null,
-    tags: parseLabelList(product.tags, 'tags'),
+    category: parseLabelList(product['categories'], 'catégories')[0] ?? null,
+    tags: parseLabelList(product['tags'], 'tags'),
     ingredients: parseIngredients(product),
-    steps: parseSteps(product.preparation_steps),
-    nutriScore: parseNutriScore(product.nutri_score),
+    steps: parseSteps(product['preparation_steps']),
+    nutriScore: parseScoreGrade(product['nutri_score']),
+    carbonScore: parseScoreGrade(product['carbon_score']),
   }
+}
+
+const tokenTtlMs = 10 * 60_000
+const ordersPageSize = 15
+const recipeConcurrency = 6
+const catalogPageConcurrency = 4
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = Array.from<R>({ length: items.length })
+  let nextIndex = 0
+  const runners = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex
+      nextIndex += 1
+      results[index] = await worker(items[index] as T, index)
+    }
+  })
+  await Promise.all(runners)
+  return results
 }
 
 export function createQuitoqueClient({
@@ -351,8 +380,8 @@ export function createQuitoqueClient({
   password,
   fetchImplementation = fetch,
 }: QuitoqueClientOptions) {
-  if (process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0') {
-    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '1'
+  if (process.env['NODE_TLS_REJECT_UNAUTHORIZED'] === '0') {
+    process.env['NODE_TLS_REJECT_UNAUTHORIZED'] = '1'
   }
 
   async function fetchJson(
@@ -366,10 +395,7 @@ export function createQuitoqueClient({
       if (remaining <= 0) break
 
       const controller = new AbortController()
-      const timeout = setTimeout(
-        () => controller.abort(),
-        Math.min(requestTimeoutMs, remaining),
-      )
+      const timeout = setTimeout(() => controller.abort(), Math.min(requestTimeoutMs, remaining))
       let response: Response | undefined
       let retryDelay: number | null = null
       let networkError: unknown
@@ -378,10 +404,7 @@ export function createQuitoqueClient({
           ...init,
           signal: controller.signal,
         })
-        if (
-          isRetryableStatus(response.status) &&
-          attempt < maximumAttempts - 1
-        ) {
+        if (isRetryableStatus(response.status) && attempt < maximumAttempts - 1) {
           retryDelay = retryAfterMs(response.headers.get('retry-after'))
           void response.body?.cancel().catch(() => {})
         } else if (!response.ok || response.status === 204) {
@@ -412,7 +435,20 @@ export function createQuitoqueClient({
     throw lastError ?? new Error('Quitoque operation deadline exceeded.')
   }
 
-  async function request(path: string, token: string, deadline: number) {
+  let cachedToken: string | null = null
+  let cachedTokenExpiresAt = 0
+
+  async function getToken(deadline: number, forceRefresh = false) {
+    if (!forceRefresh && cachedToken && Date.now() < cachedTokenExpiresAt) {
+      return { token: cachedToken, fromCache: true }
+    }
+    const token = await login(deadline)
+    cachedToken = token
+    cachedTokenExpiresAt = Date.now() + tokenTtlMs
+    return { token, fromCache: false }
+  }
+
+  async function request(path: string, token: string, deadline: number, allowAuthRetry = false) {
     try {
       const { response, payload } = await fetchJson(
         `${apiBase}${path}`,
@@ -425,6 +461,32 @@ export function createQuitoqueClient({
         },
         deadline,
       )
+      if (response.status === 401) {
+        if (cachedToken === token) {
+          cachedToken = null
+          cachedTokenExpiresAt = 0
+        }
+        if (allowAuthRetry) {
+          const refreshed = await getToken(deadline, true)
+          const retried = await fetchJson(
+            `${apiBase}${path}`,
+            {
+              redirect: 'error',
+              headers: {
+                accept: 'application/json',
+                authorization: `Bearer ${refreshed.token}`,
+              },
+            },
+            deadline,
+          )
+          if (!retried.response.ok) {
+            throw new QuitoqueApiError(
+              `La lecture du catalogue Quitoque a échoué (HTTP ${retried.response.status}).`,
+            )
+          }
+          return retried.payload
+        }
+      }
       if (!response.ok) {
         throw new QuitoqueApiError(
           `La lecture du catalogue Quitoque a échoué (HTTP ${response.status}).`,
@@ -452,13 +514,10 @@ export function createQuitoqueClient({
         },
         deadline,
       )
-      if (!response.ok)
-        throw new QuitoqueApiError('La connexion Quitoque a échoué.')
+      if (!response.ok) throw new QuitoqueApiError('La connexion Quitoque a échoué.')
       const payload = authenticationSchema.safeParse(raw)
       if (!payload.success)
-        throw new QuitoqueApiError(
-          'La réponse d’authentification Quitoque est invalide.',
-        )
+        throw new QuitoqueApiError('La réponse d’authentification Quitoque est invalide.')
       return payload.data.token
     } catch (error) {
       if (error instanceof QuitoqueApiError) throw error
@@ -468,33 +527,45 @@ export function createQuitoqueClient({
 
   const ordersById = new Map<string, z.infer<typeof deliveryOrderSchema>>()
 
-  async function fetchOrders(token: string, deadline: number) {
+  async function fetchOrders(
+    token: string,
+    deadline: number,
+    options: {
+      targetOrderId?: string
+      maxPages?: number
+      allowAuthRetry?: boolean
+    } = {},
+  ) {
+    const { targetOrderId, maxPages = maximumPages, allowAuthRetry = false } = options
     const orders: Array<z.infer<typeof deliveryOrderSchema>> = []
-    for (let page = 1; page <= maximumPages; page += 1) {
+    for (let page = 1; page <= maxPages; page += 1) {
       const query = new URLSearchParams({
         page: String(page),
-        itemsPerPage: '100',
+        itemsPerPage: String(ordersPageSize),
       })
       const payload = ordersSchema.safeParse(
-        await request(`/shop/orders?${query}`, token, deadline),
+        await request(`/shop/orders?${query}`, token, deadline, allowAuthRetry && page === 1),
       )
       if (!payload.success) {
-        throw new QuitoqueApiError(
-          'La liste des livraisons Quitoque est mal formée.',
-        )
+        throw new QuitoqueApiError('La liste des livraisons Quitoque est mal formée.')
       }
       const entries = Array.isArray(payload.data)
         ? payload.data
         : (payload.data.orders ?? payload.data['hydra:member'] ?? [])
       const parsed = z.array(deliveryOrderSchema).safeParse(entries)
       if (!parsed.success) {
-        throw new QuitoqueApiError(
-          'Une commande Quitoque ne respecte pas le contrat observé.',
-        )
+        throw new QuitoqueApiError('Une commande Quitoque ne respecte pas le contrat observé.')
       }
       orders.push(...parsed.data)
-      if (entries.length < 100) return orders
+      if (
+        targetOrderId &&
+        parsed.data.some((candidate) => String(candidate.id) === targetOrderId)
+      ) {
+        return orders
+      }
+      if (entries.length < ordersPageSize) return orders
     }
+    if (maxPages < maximumPages) return orders
     throw new QuitoqueApiError(
       'La pagination Quitoque dépasse la limite prévue pour une synchronisation.',
     )
@@ -502,8 +573,11 @@ export function createQuitoqueClient({
 
   async function listDeliveries() {
     const deadline = Date.now() + operationTimeoutMs
-    const token = await login(deadline)
-    const orders = await fetchOrders(token, deadline)
+    const { token, fromCache } = await getToken(deadline)
+    const orders = await fetchOrders(token, deadline, {
+      maxPages: 1,
+      allowAuthRetry: fromCache,
+    })
     ordersById.clear()
     for (const order of orders) {
       ordersById.set(String(order.id), order)
@@ -518,18 +592,12 @@ export function createQuitoqueClient({
 
   async function loadRecipe(value: unknown, token: string, deadline: number) {
     const raw = z.record(z.string(), z.unknown()).parse(value)
-    const code = z.string().min(1).parse(raw.code)
+    const code = z.string().min(1).parse(raw['code'])
     const details = productDetailsSchema.safeParse(
-      await request(
-        `/shop/products/${encodeURIComponent(code)}`,
-        token,
-        deadline,
-      ),
+      await request(`/shop/products/${encodeURIComponent(code)}`, token, deadline),
     )
     if (!details.success) {
-      throw new QuitoqueApiError(
-        'Les images de recette Quitoque sont mal formées.',
-      )
+      throw new QuitoqueApiError('Les images de recette Quitoque sont mal formées.')
     }
     const image = details.data.images?.[0]
     const imageUrl = image ? toImageUrl(image.path) : null
@@ -554,6 +622,32 @@ export function createQuitoqueClient({
     return parseProduct(raw, imageUrl, thumbnailUrl)
   }
 
+  async function fetchCatalogPage(
+    start: string,
+    end: string,
+    page: number,
+    token: string,
+    deadline: number,
+  ) {
+    const query = new URLSearchParams({
+      page: String(page),
+      itemsPerPage: String(pageSize),
+      format: 'api',
+    })
+    query.set('attributes[family][1]', 'recipe')
+    const response = await request(`/shop/products/${start}/${end}?${query}`, token, deadline)
+    const collection = catalogSchema.safeParse(response)
+    if (!collection.success) {
+      throw new QuitoqueApiError('Le catalogue Quitoque ne respecte pas le contrat observé.')
+    }
+    if (collection.data.paginator.nbPages > maximumPages) {
+      throw new QuitoqueApiError(
+        'Le catalogue Quitoque dépasse la limite prévue pour une synchronisation.',
+      )
+    }
+    return collection.data
+  }
+
   async function listSelectedRecipesForPeriod(
     start: string,
     end: string,
@@ -561,69 +655,64 @@ export function createQuitoqueClient({
     selectedProductIds: Set<string>,
     deadline: number,
   ) {
-    const collected = new Map<string, ImportedRecipe>()
-    let pageCount = 1
-    for (let page = 1; page <= pageCount && page <= maximumPages; page += 1) {
-      const query = new URLSearchParams({
-        page: String(page),
-        itemsPerPage: String(pageSize),
-        format: 'api',
-      })
-      query.set('attributes[family][1]', 'recipe')
-      const response = await request(
-        `/shop/products/${start}/${end}?${query}`,
-        token,
-        deadline,
-      )
-      const collection = catalogSchema.safeParse(response)
-      if (!collection.success) {
-        throw new QuitoqueApiError(
-          'Le catalogue Quitoque ne respecte pas le contrat observé.',
-        )
-      }
-      if (collection.data.paginator.nbPages > maximumPages) {
-        throw new QuitoqueApiError(
-          'Le catalogue Quitoque dépasse la limite prévue pour une synchronisation.',
-        )
-      }
-      pageCount = collection.data.paginator.nbPages
-      for (const product of collection.data.products) {
+    const matchedProducts = new Map<string, Record<string, unknown>>()
+    const collectMatches = (products: unknown[]) => {
+      for (const product of products) {
         const raw = z.record(z.string(), z.unknown()).parse(product)
-        const productId = z.union([z.string(), z.number()]).parse(raw.id)
-        if (!selectedProductIds.has(String(productId))) continue
-        const recipe = await loadRecipe(raw, token, deadline)
-        collected.set(String(productId), recipe)
+        const productId = String(z.union([z.string(), z.number()]).parse(raw['id']))
+        if (selectedProductIds.has(productId)) {
+          matchedProducts.set(productId, raw)
+        }
       }
     }
-    return collected
+
+    const firstPage = await fetchCatalogPage(start, end, 1, token, deadline)
+    collectMatches(firstPage.products)
+
+    const pageCount = Math.min(firstPage.paginator.nbPages, maximumPages)
+    if (matchedProducts.size < selectedProductIds.size && pageCount > 1) {
+      const remainingPages = Array.from({ length: pageCount - 1 }, (_, index) => index + 2)
+      const pages = await mapWithConcurrency(remainingPages, catalogPageConcurrency, (page) =>
+        fetchCatalogPage(start, end, page, token, deadline),
+      )
+      for (const page of pages) {
+        collectMatches(page.products)
+      }
+    }
+
+    const matchedEntries = [...matchedProducts.entries()]
+    const loaded = await mapWithConcurrency(
+      matchedEntries,
+      recipeConcurrency,
+      async ([productId, raw]) => [productId, await loadRecipe(raw, token, deadline)] as const,
+    )
+    return new Map<string, ImportedRecipe>(loaded)
   }
 
   async function listSelectedRecipes(externalOrderId: string) {
     const deadline = Date.now() + operationTimeoutMs
-    const token = await login(deadline)
-    ordersById.clear()
-    for (const candidate of await fetchOrders(token, deadline)) {
-      ordersById.set(String(candidate.id), candidate)
-    }
-    const order = ordersById.get(externalOrderId)
+    const { token, fromCache } = await getToken(deadline)
+    let order = ordersById.get(externalOrderId)
     if (!order?.tokenValue) {
-      throw new QuitoqueApiError(
-        'La livraison Quitoque sélectionnée n’est plus accessible.',
-      )
+      for (const candidate of await fetchOrders(token, deadline, {
+        targetOrderId: externalOrderId,
+        allowAuthRetry: fromCache,
+      })) {
+        ordersById.set(String(candidate.id), candidate)
+      }
+      order = ordersById.get(externalOrderId)
+    }
+    if (!order?.tokenValue) {
+      throw new QuitoqueApiError('La livraison Quitoque sélectionnée n’est plus accessible.')
     }
     const tokenValue = order.tokenValue
 
     if (!order?.periodStartDate || !order.periodEndDate) {
-      throw new QuitoqueApiError(
-        'La période du catalogue Quitoque est indisponible.',
-      )
+      throw new QuitoqueApiError('La période du catalogue Quitoque est indisponible.')
     }
     const start = order.periodStartDate.slice(0, 10)
     const end = order.periodEndDate.slice(0, 10)
-    if (
-      !/^\d{4}-\d{2}-\d{2}$/.test(start) ||
-      !/^\d{4}-\d{2}-\d{2}$/.test(end)
-    ) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) {
       throw new QuitoqueApiError('La période Quitoque est invalide.')
     }
 
@@ -638,28 +727,23 @@ export function createQuitoqueClient({
           `/shop/orders/${encodeURIComponent(tokenValue)}/items?${query}`,
           token,
           deadline,
+          fromCache && page === 1,
         ),
       )
       if (!payload.success) {
-        throw new QuitoqueApiError(
-          'La sélection de recettes Quitoque est mal formée.',
-        )
+        throw new QuitoqueApiError('La sélection de recettes Quitoque est mal formée.')
       }
       const entries = Array.isArray(payload.data)
         ? payload.data
         : (payload.data['hydra:member'] ?? [])
       const parsed = z.array(orderItemSchema).safeParse(entries)
       if (!parsed.success) {
-        throw new QuitoqueApiError(
-          'Une recette sélectionnée Quitoque est mal formée.',
-        )
+        throw new QuitoqueApiError('Une recette sélectionnée Quitoque est mal formée.')
       }
       items.push(...parsed.data)
       if (entries.length < 100) break
       if (page === maximumPages) {
-        throw new QuitoqueApiError(
-          'La sélection Quitoque dépasse la limite de pagination.',
-        )
+        throw new QuitoqueApiError('La sélection Quitoque dépasse la limite de pagination.')
       }
     }
 
@@ -692,9 +776,7 @@ export function createQuitoqueClient({
       const fallbackImage = product?.images?.[0]?.path
       const title = recipe?.title ?? item.productName?.trim()
       if (!title) {
-        throw new QuitoqueApiError(
-          'Une recette Quitoque sélectionnée ne possède pas de titre.',
-        )
+        throw new QuitoqueApiError('Une recette Quitoque sélectionnée ne possède pas de titre.')
       }
       const quantity = item.quantity
       for (let occurrence = 0; occurrence < quantity; occurrence += 1) {
@@ -717,6 +799,7 @@ export function createQuitoqueClient({
           ingredients: recipe?.ingredients ?? [],
           steps: recipe?.steps ?? [],
           nutriScore: recipe?.nutriScore ?? null,
+          carbonScore: recipe?.carbonScore ?? null,
         })
       }
     }
@@ -726,9 +809,7 @@ export function createQuitoqueClient({
   return { listDeliveries, listSelectedRecipes }
 }
 
-function isRecipeFamily(
-  attributes: Array<{ code: string; value: unknown }> | undefined,
-): boolean {
+function isRecipeFamily(attributes: Array<{ code: string; value: unknown }> | undefined): boolean {
   const family = attributes?.find((attribute) => attribute.code === 'family')
   const values = Array.isArray(family?.value) ? family.value : [family?.value]
   return values.some(

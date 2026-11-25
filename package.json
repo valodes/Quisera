@@ -2,31 +2,25 @@
   "name": "quisera",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@12.23.0",
-  "engines": {
-    "node": ">=24 <27"
-  },
   "scripts": {
     "dev": "pnpm --filter @quisera/shared run build && pnpm --parallel --filter @quisera/api --filter @quisera/web run dev",
     "typecheck": "pnpm --filter @quisera/shared run build && pnpm --filter @quisera/api run typecheck && pnpm --filter @quisera/web run typecheck",
     "build": "pnpm --filter @quisera/shared run build && pnpm --filter @quisera/api run build && pnpm --filter @quisera/web run build",
-    "lint": "eslint .",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
+    "lint": "oxlint",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
     "test:unit": "pnpm --filter @quisera/shared run build && vitest run",
     "test:e2e": "pnpm --filter @quisera/shared run build && pnpm --filter @quisera/web run test:e2e"
   },
   "devDependencies": {
-    "@eslint/js": "^10.0.1",
     "@types/node": "^26.6.6",
-    "eslint": "^10.15.0",
-    "eslint-plugin-vue": "^10.12.1",
-    "globals": "^17.14.0",
-    "prettier": "^3.10.1",
-    "prettier-plugin-tailwindcss": "^0.8.1",
+    "oxfmt": "^0.80.0",
+    "oxlint": "^1.95.0",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.73.0",
-    "vitest": "^5.1.1",
-    "vue-eslint-parser": "^10.4.2"
-  }
+    "vitest": "^5.1.1"
+  },
+  "engines": {
+    "node": ">=24 <27"
+  },
+  "packageManager": "pnpm@12.23.0"
 }

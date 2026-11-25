@@ -12,12 +12,7 @@ import type { ApiHonoEnvironment } from '../app.js'
 import { requireSession } from '../app.js'
 import type { AuthInstance } from '../auth.js'
 import type { DatabaseClient } from '../db/connection.js'
-import {
-  deliveryCycle,
-  deliverySelection,
-  plannedMeal,
-  recipe,
-} from '../db/schema.js'
+import { deliveryCycle, deliverySelection, plannedMeal, recipe } from '../db/schema.js'
 import {
   createQuitoqueClient,
   QuitoqueApiError,
@@ -63,10 +58,7 @@ const moveBodySchema = z
     toDate: civilDateSchema,
     toPeriod: mealPeriodSchema,
   })
-  .refine(
-    (value) =>
-      value.fromDate !== value.toDate || value.fromPeriod !== value.toPeriod,
-  )
+  .refine((value) => value.fromDate !== value.toDate || value.fromPeriod !== value.toPeriod)
 
 function dayFromApi(value: string | null | undefined) {
   if (!value) return null
@@ -74,10 +66,7 @@ function dayFromApi(value: string | null | undefined) {
   return civilDateSchema.safeParse(date).success ? date : null
 }
 
-function omit<T extends object, K extends keyof T>(
-  value: T,
-  ...keys: K[]
-): Omit<T, K> {
+function omit<T extends object, K extends keyof T>(value: T, ...keys: K[]): Omit<T, K> {
   const result = { ...value }
   for (const key of keys) Reflect.deleteProperty(result, key)
   return result
@@ -86,35 +75,14 @@ function omit<T extends object, K extends keyof T>(
 export function createPlanningRoutes(
   database: DatabaseClient,
   auth: AuthInstance,
-  trustedOrigins: readonly string[],
   quitoque?: QuitoquePlanningClient,
 ) {
   const router = new Hono<ApiHonoEnvironment>()
-  router.use('*', async (context, next) => {
-    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(context.req.method)) {
-      const origin = context.req.header('origin')
-      if (origin) {
-        try {
-          const requestOrigin = new URL(origin).origin
-          if (
-            requestOrigin !== origin ||
-            !trustedOrigins.includes(requestOrigin)
-          ) {
-            throw new Error()
-          }
-        } catch {
-          return context.json({ error: 'Origine non autorisée.' }, 403)
-        }
-      }
-    }
-    await next()
-  })
   router.use('*', requireSession(auth))
 
   router.get('/', (context) => {
     const parsed = rangeSchema.safeParse(context.req.query())
-    if (!parsed.success)
-      return context.json({ error: 'Période invalide.' }, 400)
+    if (!parsed.success) return context.json({ error: 'Période invalide.' }, 400)
     const { from, to } = parsed.data
     const meals = database
       .select()
@@ -145,11 +113,7 @@ export function createPlanningRoutes(
           )
           .all()
       : []
-    const houses = database
-      .select()
-      .from(recipe)
-      .where(eq(recipe.source, 'house'))
-      .all()
+    const houses = database.select().from(recipe).where(eq(recipe.source, 'house')).all()
     const summaries = new Map<
       string,
       { title: string; imageUrl: string | null; thumbnailUrl: string | null }
@@ -167,8 +131,7 @@ export function createPlanningRoutes(
         thumbnailUrl: home.photoThumbnailUrl,
       })
     const dateRange: string[] = []
-    for (let date = from; date <= to; date = addCivilDays(date, 1))
-      dateRange.push(date)
+    for (let date = from; date <= to; date = addCivilDays(date, 1)) dateRange.push(date)
     const days = dateRange.map((date) => {
       const slot = (period: 'lunch' | 'dinner') => {
         const meal = meals.find(
@@ -210,9 +173,8 @@ export function createPlanningRoutes(
         periodStartDate: cycle.periodStartDate,
         periodEndDate: cycle.periodEndDate,
         lastSyncedAt: cycle.lastSyncedAt?.toISOString() ?? null,
-        recipeCount: selections.filter(
-          (selection) => selection.deliveryCycleId === cycle.id,
-        ).length,
+        recipeCount: selections.filter((selection) => selection.deliveryCycleId === cycle.id)
+          .length,
       })),
     })
   })
@@ -228,20 +190,14 @@ export function createPlanningRoutes(
       .select()
       .from(deliverySelection)
       .where(eq(deliverySelection.deliveryCycleId, cycle.id))
-      .orderBy(
-        asc(deliverySelection.sourcePosition),
-        asc(deliverySelection.occurrence),
-      )
+      .orderBy(asc(deliverySelection.sourcePosition), asc(deliverySelection.occurrence))
       .all()
     return context.json({ cycle, selections })
   })
 
   router.post('/quitoque/sync', async (context) => {
     if (!quitoque)
-      return context.json(
-        { error: 'La connexion Quitoque n’est pas configurée.' },
-        503,
-      )
+      return context.json({ error: 'La connexion Quitoque n’est pas configurée.' }, 503)
     try {
       const deliveries = await quitoque.listDeliveries()
       const now = new Date()
@@ -307,10 +263,7 @@ export function createPlanningRoutes(
 
   router.post('/deliveries/:id/recipes/sync', async (context) => {
     if (!quitoque)
-      return context.json(
-        { error: 'La connexion Quitoque n’est pas configurée.' },
-        503,
-      )
+      return context.json({ error: 'La connexion Quitoque n’est pas configurée.' }, 503)
     const cycle = database
       .select()
       .from(deliveryCycle)
@@ -340,12 +293,7 @@ export function createPlanningRoutes(
             .get()
           if (existing) updated += 1
           else added += 1
-          const values = selectionValues(
-            cycle.id,
-            item,
-            now,
-            existing?.id ?? randomUUID(),
-          )
+          const values = selectionValues(cycle.id, item, now, existing?.id ?? randomUUID())
           tx.insert(deliverySelection)
             .values(values)
             .onConflictDoUpdate({
@@ -403,8 +351,7 @@ export function createPlanningRoutes(
     const body = z
       .object({ confirmed: z.boolean().default(false) })
       .safeParse(await context.req.json().catch(() => ({})))
-    if (!body.success)
-      return context.json({ error: 'Confirmation invalide.' }, 400)
+    if (!body.success) return context.json({ error: 'Confirmation invalide.' }, 400)
     const slots = deliveryCycleSlots(cycle.deliveryDate)
     const selected = database
       .select()
@@ -415,10 +362,7 @@ export function createPlanningRoutes(
           eq(deliverySelection.isAvailable, true),
         ),
       )
-      .orderBy(
-        asc(deliverySelection.sourcePosition),
-        asc(deliverySelection.occurrence),
-      )
+      .orderBy(asc(deliverySelection.sourcePosition), asc(deliverySelection.occurrence))
       .all()
     const existing = database
       .select()
@@ -429,12 +373,7 @@ export function createPlanningRoutes(
     const occupied = database
       .select()
       .from(plannedMeal)
-      .where(
-        and(
-          gte(plannedMeal.date, slots[0]!.date),
-          lte(plannedMeal.date, slots.at(-1)!.date),
-        ),
-      )
+      .where(and(gte(plannedMeal.date, slots[0]!.date), lte(plannedMeal.date, slots.at(-1)!.date)))
       .all()
     const manuallyUsedSelections = new Set(
       occupied
@@ -447,9 +386,7 @@ export function createPlanningRoutes(
     const preservedManual = slots.filter((slot) =>
       occupied.some(
         (meal) =>
-          meal.date === slot.date &&
-          meal.period === slot.period &&
-          meal.origin === 'manual',
+          meal.date === slot.date && meal.period === slot.period && meal.origin === 'manual',
       ),
     )
     const availableSlots = slots.filter(
@@ -464,8 +401,7 @@ export function createPlanningRoutes(
     if (automatic.length && !body.data.confirmed)
       return context.json(
         {
-          error:
-            'Confirmez le remplacement de la répartition automatique existante.',
+          error: 'Confirmez le remplacement de la répartition automatique existante.',
           preview: {
             toReplace: automatic.length,
             availableSlots,
@@ -478,19 +414,13 @@ export function createPlanningRoutes(
     let assigned = 0
     const preserved = preservedManual.length
     database.transaction((tx) => {
-      for (const meal of automatic)
-        tx.delete(plannedMeal).where(eq(plannedMeal.id, meal.id)).run()
+      for (const meal of automatic) tx.delete(plannedMeal).where(eq(plannedMeal.id, meal.id)).run()
       let selectionIndex = 0
       for (const slot of slots) {
         const any = tx
           .select()
           .from(plannedMeal)
-          .where(
-            and(
-              eq(plannedMeal.date, slot.date),
-              eq(plannedMeal.period, slot.period),
-            ),
-          )
+          .where(and(eq(plannedMeal.date, slot.date), eq(plannedMeal.period, slot.period)))
           .get()
         if (any) continue
         const item = remainingSelections[selectionIndex++]
@@ -517,34 +447,22 @@ export function createPlanningRoutes(
     const occupiedAfter = database
       .select()
       .from(plannedMeal)
-      .where(
-        and(
-          gte(plannedMeal.date, slots[0]!.date),
-          lte(plannedMeal.date, slots.at(-1)!.date),
-        ),
-      )
+      .where(and(gte(plannedMeal.date, slots[0]!.date), lte(plannedMeal.date, slots.at(-1)!.date)))
       .all()
     const filled = slots.filter((slot) =>
-      occupiedAfter.some(
-        (meal) => meal.date === slot.date && meal.period === slot.period,
-      ),
+      occupiedAfter.some((meal) => meal.date === slot.date && meal.period === slot.period),
     ).length
     return context.json({
       assigned,
       leftEmpty: slots.length - filled,
       preserved,
-      unassigned: Math.max(
-        0,
-        selected.length - assigned - manuallyUsedSelections.size,
-      ),
+      unassigned: Math.max(0, selected.length - assigned - manuallyUsedSelections.size),
       slots: slots.length,
     })
   })
 
   router.put('/slots', async (context) => {
-    const body = slotBodySchema.safeParse(
-      await context.req.json().catch(() => null),
-    )
+    const body = slotBodySchema.safeParse(await context.req.json().catch(() => null))
     if (!body.success) return context.json({ error: 'Repas invalide.' }, 400)
     const value = body.data
     let deliveryCycleId: string | null = null
@@ -554,8 +472,7 @@ export function createPlanningRoutes(
         .from(recipe)
         .where(and(eq(recipe.id, value.recipeId), eq(recipe.source, 'house')))
         .get()
-      if (!found)
-        return context.json({ error: 'Recette maison introuvable.' }, 404)
+      if (!found) return context.json({ error: 'Recette maison introuvable.' }, 404)
     }
     if (value.category === 'quitoque') {
       const selection = database
@@ -570,14 +487,10 @@ export function createPlanningRoutes(
         .from(plannedMeal)
         .where(eq(plannedMeal.deliverySelectionId, selection.id))
         .get()
-      if (
-        existingUse &&
-        (existingUse.date !== value.date || existingUse.period !== value.period)
-      )
+      if (existingUse && (existingUse.date !== value.date || existingUse.period !== value.period))
         return context.json(
           {
-            error:
-              'Cette occurrence Quitoque est déjà affectée à un autre créneau.',
+            error: 'Cette occurrence Quitoque est déjà affectée à un autre créneau.',
           },
           409,
         )
@@ -606,11 +519,9 @@ export function createPlanningRoutes(
       category: value.category,
       origin: 'manual' as const,
       deliveryCycleId,
-      deliverySelectionId:
-        value.category === 'quitoque' ? value.selectionId : null,
+      deliverySelectionId: value.category === 'quitoque' ? value.selectionId : null,
       homeRecipeId: value.category === 'home' ? value.recipeId : null,
-      restaurantName:
-        value.category === 'restaurant' ? (value.restaurantName ?? null) : null,
+      restaurantName: value.category === 'restaurant' ? (value.restaurantName ?? null) : null,
       notes: value.category === 'restaurant' ? (value.notes ?? null) : null,
       createdAt: now,
       updatedAt: now,
@@ -629,73 +540,90 @@ export function createPlanningRoutes(
   router.delete('/slots/:date/:period', (context) => {
     const date = civilDateSchema.safeParse(context.req.param('date'))
     const period = mealPeriodSchema.safeParse(context.req.param('period'))
-    if (!date.success || !period.success)
-      return context.json({ error: 'Créneau invalide.' }, 400)
+    if (!date.success || !period.success) return context.json({ error: 'Créneau invalide.' }, 400)
     database
       .delete(plannedMeal)
-      .where(
-        and(
-          eq(plannedMeal.date, date.data),
-          eq(plannedMeal.period, period.data),
-        ),
-      )
+      .where(and(eq(plannedMeal.date, date.data), eq(plannedMeal.period, period.data)))
       .run()
     return context.json({ cleared: true })
   })
 
   router.post('/slots/move', async (context) => {
-    const body = moveBodySchema.safeParse(
-      await context.req.json().catch(() => null),
-    )
-    if (!body.success)
-      return context.json({ error: 'Déplacement invalide.' }, 400)
+    const body = moveBodySchema.safeParse(await context.req.json().catch(() => null))
+    if (!body.success) return context.json({ error: 'Déplacement invalide.' }, 400)
     const value = body.data
     const meal = database
       .select()
       .from(plannedMeal)
-      .where(
-        and(
-          eq(plannedMeal.date, value.fromDate),
-          eq(plannedMeal.period, value.fromPeriod),
-        ),
-      )
+      .where(and(eq(plannedMeal.date, value.fromDate), eq(plannedMeal.period, value.fromPeriod)))
       .get()
     if (!meal) return context.json({ error: 'Aucun repas à déplacer.' }, 404)
+    if (value.fromDate === value.toDate && value.fromPeriod === value.toPeriod)
+      return context.json({ moved: true, swapped: false })
     const occupied = database
-      .select({ id: plannedMeal.id })
+      .select()
       .from(plannedMeal)
-      .where(
-        and(
-          eq(plannedMeal.date, value.toDate),
-          eq(plannedMeal.period, value.toPeriod),
-        ),
-      )
+      .where(and(eq(plannedMeal.date, value.toDate), eq(plannedMeal.period, value.toPeriod)))
       .get()
-    if (occupied)
-      return context.json(
-        { error: 'Le créneau de destination est déjà occupé.' },
-        409,
-      )
-    if (meal.category === 'quitoque' && meal.deliveryCycleId) {
+    const checkQuitoqueTarget = (
+      item: typeof meal,
+      targetDate: string,
+      targetPeriod: 'lunch' | 'dinner',
+    ) => {
+      if (item.category !== 'quitoque' || !item.deliveryCycleId) return true
       const cycle = database
         .select()
         .from(deliveryCycle)
-        .where(eq(deliveryCycle.id, meal.deliveryCycleId))
+        .where(eq(deliveryCycle.id, item.deliveryCycleId))
         .get()
-      if (
-        !cycle ||
-        !deliveryCycleSlots(cycle.deliveryDate).some(
-          (slot) =>
-            slot.date === value.toDate && slot.period === value.toPeriod,
-        )
+      return Boolean(
+        cycle &&
+        deliveryCycleSlots(cycle.deliveryDate).some(
+          (slot) => slot.date === targetDate && slot.period === targetPeriod,
+        ),
       )
-        return context.json(
-          {
-            error:
-              'Une recette Quitoque doit rester dans les créneaux de sa livraison.',
-          },
-          400,
-        )
+    }
+    if (!checkQuitoqueTarget(meal, value.toDate, value.toPeriod))
+      return context.json(
+        {
+          error: 'Une recette Quitoque doit rester dans les créneaux de sa livraison.',
+        },
+        400,
+      )
+    if (occupied && !checkQuitoqueTarget(occupied, value.fromDate, value.fromPeriod))
+      return context.json(
+        {
+          error: 'Une recette Quitoque doit rester dans les créneaux de sa livraison.',
+        },
+        400,
+      )
+    const now = new Date()
+    if (occupied) {
+      database.transaction((tx) => {
+        tx.update(plannedMeal)
+          .set({ date: '__swap__', updatedAt: now })
+          .where(eq(plannedMeal.id, occupied.id))
+          .run()
+        tx.update(plannedMeal)
+          .set({
+            date: value.toDate,
+            period: value.toPeriod,
+            origin: 'manual',
+            updatedAt: now,
+          })
+          .where(eq(plannedMeal.id, meal.id))
+          .run()
+        tx.update(plannedMeal)
+          .set({
+            date: value.fromDate,
+            period: value.fromPeriod,
+            origin: 'manual',
+            updatedAt: now,
+          })
+          .where(eq(plannedMeal.id, occupied.id))
+          .run()
+      })
+      return context.json({ moved: true, swapped: true })
     }
     database
       .update(plannedMeal)
@@ -703,22 +631,17 @@ export function createPlanningRoutes(
         date: value.toDate,
         period: value.toPeriod,
         origin: 'manual',
-        updatedAt: new Date(),
+        updatedAt: now,
       })
       .where(eq(plannedMeal.id, meal.id))
       .run()
-    return context.json({ moved: true })
+    return context.json({ moved: true, swapped: false })
   })
 
   return router
 }
 
-function selectionValues(
-  cycleId: string,
-  item: QuitoqueDeliverySelection,
-  now: Date,
-  id: string,
-) {
+function selectionValues(cycleId: string, item: QuitoqueDeliverySelection, now: Date, id: string) {
   return {
     id,
     deliveryCycleId: cycleId,
@@ -734,6 +657,7 @@ function selectionValues(
     photoThumbnailUrl: item.thumbnailUrl,
     totalMinutes: item.totalMinutes,
     nutriScore: item.nutriScore,
+    carbonScore: item.carbonScore,
     ingredientsJson: JSON.stringify(item.ingredients),
     stepsJson: JSON.stringify(item.steps),
     updatedAt: now,

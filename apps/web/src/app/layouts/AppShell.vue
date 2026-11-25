@@ -1,18 +1,29 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
+import { LogOut, Menu } from '@lucide/vue'
 import MobileSettingsMenu from '@/components/layout/MobileSettingsMenu.vue'
 import NavigationLink from '@/components/layout/NavigationLink.vue'
+import ToastRegion from '@/components/ui/ToastRegion.vue'
 import { navigationItems, mobileNavigationItems } from '@/app/navigation'
 import { authClient } from '@/auth/client'
-import Button from '@/components/ui/Button.vue'
 
+const SIDEBAR_STORAGE_KEY = 'quisera:sidebar-collapsed'
 const route = useRoute()
 const router = useRouter()
 const session = authClient.useSession()
+const sidebarCollapsed = ref(
+  typeof window !== 'undefined' && window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === 'true',
+)
 const pageTitle = computed(() =>
   typeof route.meta.title === 'string' ? route.meta.title : 'Quisera',
 )
+
+function toggleSidebar() {
+  sidebarCollapsed.value = !sidebarCollapsed.value
+  if (typeof window !== 'undefined')
+    window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(sidebarCollapsed.value))
+}
 
 watch(
   () => session.value.data,
@@ -40,18 +51,33 @@ async function signOut() {
   <div v-else-if="!session.data" class="session-loading" role="status">
     Redirection vers la connexion…
   </div>
-  <div v-else class="app-shell">
+  <div v-else class="app-shell" :class="{ 'app-shell--collapsed': sidebarCollapsed }">
     <a class="skip-link" href="#main-content">Aller au contenu principal</a>
 
     <aside class="app-sidebar" aria-label="Navigation de Quisera">
-      <RouterLink
-        class="app-brand app-brand--sidebar"
-        to="/"
-        aria-label="Quisera, accueil"
-      >
-        <span class="app-brand__mark" aria-hidden="true">Q</span>
-        <span>Quisera</span>
-      </RouterLink>
+      <div class="sidebar-top">
+        <RouterLink
+          v-if="!sidebarCollapsed"
+          class="app-brand app-brand--sidebar"
+          to="/"
+          aria-label="Quisera, accueil"
+        >
+          <span class="app-brand__mark" aria-hidden="true">Q</span>
+          <span>Quisera</span>
+        </RouterLink>
+        <button
+          type="button"
+          class="sidebar-toggle"
+          :aria-expanded="!sidebarCollapsed"
+          :aria-label="
+            sidebarCollapsed ? 'Agrandir la barre latérale' : 'Réduire la barre latérale'
+          "
+          :title="sidebarCollapsed ? 'Agrandir le menu' : 'Réduire le menu'"
+          @click="toggleSidebar"
+        >
+          <Menu :size="20" aria-hidden="true" />
+        </button>
+      </div>
 
       <nav class="sidebar-navigation" aria-label="Navigation principale">
         <NavigationLink
@@ -59,31 +85,45 @@ async function signOut() {
           :key="item.name"
           :item="item"
           mode="sidebar"
+          :collapsed="sidebarCollapsed"
         />
       </nav>
+
+      <div class="sidebar-account">
+        <RouterLink
+          v-if="!sidebarCollapsed"
+          to="/parametres"
+          class="sidebar-account__user"
+          :title="`${session.data.user.name} — Profil et foyer`"
+        >
+          <span class="sidebar-account__avatar" aria-hidden="true">{{
+            session.data.user.name.slice(0, 1).toUpperCase()
+          }}</span>
+          <span class="sidebar-account__name">{{ session.data.user.name }}</span>
+        </RouterLink>
+        <button
+          type="button"
+          class="sidebar-sign-out"
+          :aria-label="sidebarCollapsed ? 'Déconnexion' : undefined"
+          :title="sidebarCollapsed ? `Déconnexion (${session.data.user.name})` : undefined"
+          @click="signOut"
+        >
+          <LogOut :size="18" aria-hidden="true" />
+          <span v-if="!sidebarCollapsed">Déconnexion</span>
+        </button>
+      </div>
     </aside>
 
     <div class="app-column">
+      <h1 id="page-title" class="sr-only">{{ pageTitle }}</h1>
+
       <header class="app-header">
         <div class="app-header__mobile-row">
-          <RouterLink
-            class="app-brand app-brand--mobile"
-            to="/"
-            aria-label="Quisera, accueil"
-          >
+          <RouterLink class="app-brand app-brand--mobile" to="/" aria-label="Quisera, accueil">
             <span class="app-brand__mark" aria-hidden="true">Q</span>
             <span>Quisera</span>
           </RouterLink>
-        </div>
-        <div class="app-header__title-row">
-          <h1 id="page-title">{{ pageTitle }}</h1>
-          <div class="account-controls">
-            <span class="account-name">{{ session.data.user.name }}</span>
-            <Button variant="ghost" class="sign-out" @click="signOut">
-              Déconnexion
-            </Button>
-            <MobileSettingsMenu />
-          </div>
+          <MobileSettingsMenu />
         </div>
       </header>
 
@@ -108,5 +148,6 @@ async function signOut() {
         mode="bottom"
       />
     </nav>
+    <ToastRegion />
   </div>
 </template>

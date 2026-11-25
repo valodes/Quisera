@@ -27,8 +27,7 @@ try {
   const sessionCookie = signedIn.headers
     .getSetCookie()
     .find((cookie) => /(?:__Secure-)?better-auth\.session_token=/.test(cookie))
-  if (!sessionCookie)
-    throw new Error('Could not create the temporary browser session.')
+  if (!sessionCookie) throw new Error('Could not create the temporary browser session.')
   const [pair] = sessionCookie.split(';', 1)
   const separator = pair.indexOf('=')
   const name = pair.slice(0, separator)

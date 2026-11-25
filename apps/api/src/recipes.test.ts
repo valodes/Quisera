@@ -8,11 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createApp } from './app.js'
 import { createAuth } from './auth.js'
 import { openDatabase } from './db/connection.js'
-import {
-  recipe,
-  recipeExternalReference,
-  recipeIngredient,
-} from './db/schema.js'
+import { recipe, recipeExternalReference, recipeIngredient } from './db/schema.js'
 
 const testEnvironment = {
   NODE_ENV: 'test' as const,
@@ -45,9 +41,7 @@ async function signIn(email: string) {
     body: JSON.stringify({ email, password }),
   })
   expect(response.status).toBe(200)
-  const cookie = response.headers
-    .get('set-cookie')
-    ?.match(/better-auth\.session_token=[^;,]+/)?.[0]
+  const cookie = response.headers.get('set-cookie')?.match(/better-auth\.session_token=[^;,]+/)?.[0]
   expect(cookie).toBeTruthy()
   return cookie!
 }
@@ -59,10 +53,7 @@ function recipeForm(
   const form = new FormData()
   form.set('recipe', JSON.stringify(value))
   if (image) {
-    form.set(
-      'image',
-      new File([new Uint8Array(image.bytes)], image.name, { type: image.type }),
-    )
+    form.set('image', new File([new Uint8Array(image.bytes)], image.name, { type: image.type }))
   }
   return form
 }
@@ -206,12 +197,8 @@ describe('private recipe library', () => {
     const secondFavorites = await app.request('/api/recipes/favorites', {
       headers: { cookie: secondCookie },
     })
-    expect(
-      ((await firstFavorites.json()) as { items: unknown[] }).items,
-    ).toHaveLength(1)
-    expect(
-      ((await secondFavorites.json()) as { items: unknown[] }).items,
-    ).toHaveLength(0)
+    expect(((await firstFavorites.json()) as { items: unknown[] }).items).toHaveLength(1)
+    expect(((await secondFavorites.json()) as { items: unknown[] }).items).toHaveLength(0)
 
     expect(
       (
@@ -275,10 +262,7 @@ describe('private recipe library', () => {
   })
 
   it('updates and deletes a house recipe without leaving its content behind', async () => {
-    const owner = await createUser(
-      'recipe-lifecycle@quisera.invalid',
-      'Lifecycle',
-    )
+    const owner = await createUser('recipe-lifecycle@quisera.invalid', 'Lifecycle')
     const cookie = await signIn(owner.user.email)
     const created = await createHouseRecipe(cookie)
     const updated = await app.request(`/api/recipes/${created.id}`, {
@@ -304,23 +288,19 @@ describe('private recipe library', () => {
       headers: { cookie },
     })
     expect(deleted.status).toBe(204)
-    expect(
-      (await app.request(`/api/recipes/${created.id}`, { headers: { cookie } }))
-        .status,
-    ).toBe(404)
-    expect(
-      connection.client.select().from(recipeIngredient).all(),
-    ).toHaveLength(0)
+    expect((await app.request(`/api/recipes/${created.id}`, { headers: { cookie } })).status).toBe(
+      404,
+    )
+    expect(connection.client.select().from(recipeIngredient).all()).toHaveLength(0)
   })
 
   it('persists complete uploaded photos and rejects mismatched image content', async () => {
     const owner = await createUser('recipe-photo@quisera.invalid', 'Photo')
     const cookie = await signIn(owner.user.email)
     const png = [
-      137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1,
-      0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84,
-      8, 215, 99, 248, 207, 192, 0, 0, 3, 1, 1, 0, 201, 254, 146, 239, 0, 0, 0,
-      0, 73, 69, 78, 68, 174, 66, 96, 130,
+      137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0,
+      0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 8, 215, 99, 248, 207, 192, 0, 0, 3, 1, 1,
+      0, 201, 254, 146, 239, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
     ]
     const createdResponse = await app.request('/api/recipes', {
       method: 'POST',

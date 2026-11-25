@@ -9,6 +9,9 @@ export type DeliverySnapshot = {
   description: string | null
   photoUrl: string | null
   photoThumbnailUrl: string | null
+  totalMinutes: number | null
+  nutriScore: string | null
+  carbonScore: string | null
   ingredientsJson: string
   stepsJson: string
 }
@@ -19,7 +22,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
   })
   const payload = (await response.json().catch(() => null)) as
-    (T & { error?: string; preview?: unknown }) | null
+    | (T & { error?: string; preview?: unknown })
+    | null
   if (!response.ok) {
     const error = new Error(payload?.error ?? 'Le planning est indisponible.')
     Object.assign(error, { status: response.status, preview: payload?.preview })

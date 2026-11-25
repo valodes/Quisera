@@ -2,14 +2,12 @@
 import { RouterLink } from 'vue-router'
 import { navigationItems } from '@/app/navigation'
 
-const home = navigationItems[0]
+const homePath = navigationItems[0]?.path ?? '/'
 </script>
 
 <template>
   <section class="not-found">
     <p>Cette adresse ne correspond à aucune section de Quisera.</p>
-    <RouterLink :to="home.path" class="not-found__link">
-      Revenir à l’accueil
-    </RouterLink>
+    <RouterLink :to="homePath" class="not-found__link"> Revenir à l’accueil </RouterLink>
   </section>
 </template>

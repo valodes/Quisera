@@ -29,9 +29,7 @@ export function listRecipes(filters: RecipeFilters, favorites = false) {
   for (const [key, value] of Object.entries(filters)) {
     if (value !== undefined && value !== '') query.set(key, String(value))
   }
-  return request<RecipeListResponse>(
-    `${favorites ? '/favorites' : ''}?${query}`,
-  )
+  return request<RecipeListResponse>(`${favorites ? '/favorites' : ''}?${query}`)
 }
 
 export function getRecipe(id: string) {
@@ -48,7 +46,7 @@ export function saveRecipe(id: string | undefined, payload: FormData | object) {
   const formData = payload instanceof FormData
   return request<RecipeDetail>(id ? `/${encodeURIComponent(id)}` : '', {
     method: id ? 'PUT' : 'POST',
-    headers: formData ? undefined : { 'Content-Type': 'application/json' },
+    ...(formData ? {} : { headers: { 'Content-Type': 'application/json' } }),
     body: formData ? payload : JSON.stringify(payload),
   })
 }

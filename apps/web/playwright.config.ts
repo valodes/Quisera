@@ -12,8 +12,7 @@ async function findAvailablePort(): Promise<number> {
     server.listen(0, '127.0.0.1', () => resolve())
   })
   const address = server.address()
-  if (!address || typeof address === 'string')
-    throw new Error('Could not reserve a test port.')
+  if (!address || typeof address === 'string') throw new Error('Could not reserve a test port.')
   const port = address.port
   await new Promise<void>((resolve, reject) =>
     server.close((error) => (error ? reject(error) : resolve())),
@@ -21,25 +20,17 @@ async function findAvailablePort(): Promise<number> {
   return port
 }
 
-const apiPort = Number(
-  process.env.QUI_E2E_API_PORT ?? (await findAvailablePort()),
-)
-const webPort = Number(
-  process.env.QUI_E2E_WEB_PORT ?? (await findAvailablePort()),
-)
+const apiPort = Number(process.env.QUI_E2E_API_PORT ?? (await findAvailablePort()))
+const webPort = Number(process.env.QUI_E2E_WEB_PORT ?? (await findAvailablePort()))
 const temporaryDirectory =
-  process.env.QUI_E2E_TEMP_DIR ??
-  mkdtempSync(join(tmpdir(), 'quisera-playwright-'))
+  process.env.QUI_E2E_TEMP_DIR ?? mkdtempSync(join(tmpdir(), 'quisera-playwright-'))
 process.env.QUI_E2E_API_PORT = String(apiPort)
 process.env.QUI_E2E_WEB_PORT = String(webPort)
 process.env.QUI_E2E_TEMP_DIR = temporaryDirectory
 process.env.SQLITE_PATH = join(temporaryDirectory, 'auth.sqlite')
 process.env.RECIPE_UPLOAD_DIR = join(temporaryDirectory, 'recipe-photos')
 process.env.E2E_CREDENTIALS_PATH = join(temporaryDirectory, 'credentials.json')
-process.env.E2E_STORAGE_STATE_PATH = join(
-  temporaryDirectory,
-  'storage-state.json',
-)
+process.env.E2E_STORAGE_STATE_PATH = join(temporaryDirectory, 'storage-state.json')
 process.env.APP_URL = `http://127.0.0.1:${webPort}`
 process.env.TRUSTED_ORIGINS = process.env.APP_URL
 process.env.BETTER_AUTH_SECRET = randomBytes(32).toString('base64url')

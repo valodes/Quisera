@@ -1,0 +1,16 @@
+@mixin focus-ring($color: var(--q-focus), $offset: 2px) {
+  &:focus-visible {
+    outline: 3px solid $color;
+    outline-offset: $offset;
+  }
+}
+
+@mixin touch-target {
+  min-height: var(--q-touch-target);
+}
+
+@mixin from-lg {
+  @media (min-width: 64rem) {
+    @content;
+  }
+}

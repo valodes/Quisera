@@ -13,10 +13,10 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     proxy: {
-      '/api': `http://127.0.0.1:${process.env.API_PORT ?? '3000'}`,
-      '/health': `http://127.0.0.1:${process.env.API_PORT ?? '3000'}`,
+      '/api': `http://127.0.0.1:${process.env['API_PORT'] ?? '3000'}`,
+      '/health': `http://127.0.0.1:${process.env['API_PORT'] ?? '3000'}`,
     },
-    port: Number(process.env.WEB_PORT ?? 3131),
+    port: Number(process.env['WEB_PORT'] ?? 3131),
     strictPort: true,
   },
 })

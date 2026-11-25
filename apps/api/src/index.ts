@@ -14,9 +14,7 @@ const server = serve({
   port: environment.API_PORT,
 })
 
-console.info(
-  `Quisera API listening on ${environment.API_HOST}:${environment.API_PORT}`,
-)
+console.info(`Quisera API listening on ${environment.API_HOST}:${environment.API_PORT}`)
 
 let closing = false
 const close = () => {

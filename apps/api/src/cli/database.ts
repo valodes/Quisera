@@ -25,8 +25,7 @@ try {
       throw new Error('Source and destination database paths must differ.')
     }
     if (action === 'backup') {
-      if (existsSync(targetPath))
-        throw new Error('Backup destination already exists.')
+      if (existsSync(targetPath)) throw new Error('Backup destination already exists.')
       mkdirSync(dirname(targetPath), { recursive: true })
       await connection.sqlite.backup(targetPath)
       chmodSync(targetPath, 0o600)
@@ -35,11 +34,8 @@ try {
       if (connection.sqlite.prepare('SELECT 1').get() === undefined) {
         throw new Error('Current database is unavailable.')
       }
-      const confirmation = await promptLine(
-        `Type RESTORE ${targetPath} to replace this database: `,
-      )
-      if (confirmation !== `RESTORE ${targetPath}`)
-        throw new Error('Restore cancelled.')
+      const confirmation = await promptLine(`Type RESTORE ${targetPath} to replace this database: `)
+      if (confirmation !== `RESTORE ${targetPath}`) throw new Error('Restore cancelled.')
       connection.close()
       const source = new Database(targetPath, {
         readonly: true,
@@ -65,18 +61,13 @@ try {
         integrity_check: string
       }>
       restored.close()
-      if (
-        restoredIntegrity.length !== 1 ||
-        restoredIntegrity[0]?.integrity_check !== 'ok'
-      ) {
+      if (restoredIntegrity.length !== 1 || restoredIntegrity[0]?.integrity_check !== 'ok') {
         throw new Error('Restored database integrity check failed.')
       }
       console.info('Database restored from a verified backup.')
     }
   } else {
-    throw new Error(
-      'Usage: pnpm db:<backup|restore> -- <sqlite-path> or pnpm db:integrity',
-    )
+    throw new Error('Usage: pnpm db:<backup|restore> -- <sqlite-path> or pnpm db:integrity')
   }
 } finally {
   try {

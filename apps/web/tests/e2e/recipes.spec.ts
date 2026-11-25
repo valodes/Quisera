@@ -1,13 +1,12 @@
 import { readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
 
-const credentials = JSON.parse(
-  readFileSync(process.env.E2E_CREDENTIALS_PATH!, 'utf8'),
-) as { email: string; password: string }
+const credentials = JSON.parse(readFileSync(process.env.E2E_CREDENTIALS_PATH!, 'utf8')) as {
+  email: string
+  password: string
+}
 
-test('creates, searches, opens, and favorites a house recipe', async ({
-  page,
-}) => {
+test('creates, searches, opens, and favorites a house recipe', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/recettes')
   await expect(page.getByRole('heading', { name: 'Recettes' })).toBeVisible()
@@ -15,10 +14,7 @@ test('creates, searches, opens, and favorites a house recipe', async ({
 
   const title = `Recette de test ${Date.now()}`
   await page.getByLabel('Nom de la recette').fill(title)
-  await page
-    .locator('.recipe-form__item input[type="text"]')
-    .first()
-    .fill('Courge de test')
+  await page.locator('.recipe-form__item input[type="text"]').first().fill('Courge de test')
   await page
     .getByLabel('Étape 1', { exact: true })
     .fill(
@@ -40,23 +36,15 @@ test('creates, searches, opens, and favorites a house recipe', async ({
   const recipeLink = page.getByRole('link', { name: `Consulter ${title}` })
   await expect(recipeLink).toBeVisible()
   const card = page.getByRole('article').filter({ has: recipeLink })
-  await card
-    .getByRole('button', { name: 'Ajouter aux favoris', exact: true })
-    .click()
-  await expect(
-    card.getByRole('button', { name: 'Retirer des favoris', exact: true }),
-  ).toBeVisible()
+  await card.getByRole('button', { name: 'Ajouter aux favoris', exact: true }).click()
+  await expect(card.getByRole('button', { name: 'Retirer des favoris', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Favoris', exact: true }).click()
   await expect(recipeLink).toBeVisible()
 
-  expect(
-    await page.evaluate(() => document.documentElement.scrollWidth),
-  ).toBeLessThanOrEqual(390)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
 })
 
-test('recipe library fits desktop, tablet, and mobile widths', async ({
-  page,
-}) => {
+test('recipe library fits desktop, tablet, and mobile widths', async ({ page }) => {
   const viewports = [
     { width: 1440, height: 1000, mobile: false },
     { width: 1024, height: 768, mobile: false },
@@ -68,9 +56,7 @@ test('recipe library fits desktop, tablet, and mobile widths', async ({
   await page.context().clearCookies()
   await page.goto('/connexion')
   await page.getByLabel('Adresse e-mail').fill(credentials.email)
-  await page
-    .getByLabel('Mot de passe', { exact: true })
-    .fill(credentials.password)
+  await page.getByLabel('Mot de passe', { exact: true }).fill(credentials.password)
   await page.getByRole('button', { name: 'Se connecter' }).click()
   await expect(page).toHaveURL('/')
   await page.getByRole('link', { name: 'Recettes' }).click()
@@ -78,12 +64,10 @@ test('recipe library fits desktop, tablet, and mobile widths', async ({
 
   for (const viewport of viewports) {
     await page.setViewportSize(viewport)
-    expect(
-      await page.evaluate(() => document.documentElement.scrollWidth),
-    ).toBeLessThanOrEqual(viewport.width)
-    await expect(
-      page.getByRole('button', { name: 'Favoris', exact: true }),
-    ).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      viewport.width,
+    )
+    await expect(page.getByRole('button', { name: 'Favoris', exact: true })).toBeVisible()
     if (viewport.mobile) {
       await expect(page.locator('.recipe-filters summary')).toBeVisible()
       await expect(page.getByLabel('Catégorie')).toBeHidden()

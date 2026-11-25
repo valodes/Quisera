@@ -23,9 +23,7 @@ describe('deliveryCycleSlots', () => {
       period: 'lunch',
     })
     expect(slots.filter((slot) => slot.date === deliveryDate)).toHaveLength(1)
-    expect(
-      slots.filter((slot) => slot.date === addCivilDays(deliveryDate, 7)),
-    ).toHaveLength(1)
+    expect(slots.filter((slot) => slot.date === addCivilDays(deliveryDate, 7))).toHaveLength(1)
   })
 
   it('handles month and year transitions as civil dates', () => {
