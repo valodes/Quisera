@@ -158,6 +158,7 @@ export const deliverySelection = sqliteTable(
     photoUrl: text('photo_url'),
     photoThumbnailUrl: text('photo_thumbnail_url'),
     totalMinutes: integer('total_minutes'),
+    caloriesKcal: integer('calories_kcal'),
     nutriScore: text('nutri_score'),
     carbonScore: text('carbon_score'),
     ingredientsJson: text('ingredients_json').notNull().default('[]'),
@@ -379,6 +380,33 @@ export const householdInvitation = sqliteTable(
   ],
 )
 
+export const householdPlanningPreferences = sqliteTable('household_planning_preferences', {
+  householdId: text('household_id')
+    .primaryKey()
+    .references(() => household.id, { onDelete: 'cascade' }),
+  freshProductsMaxDays: integer('fresh_products_max_days'),
+  requiredSlotsJson: text('required_slots_json').notNull().default('[]'),
+  excludedSlotsJson: text('excluded_slots_json').notNull().default('[]'),
+  weekdayMaxPrepMinutes: integer('weekday_max_prep_minutes'),
+  longRecipeDaysJson: text('long_recipe_days_json').notNull().default('[6,0]'),
+  maxDailyCalories: integer('max_daily_calories'),
+  calorieBalance: text('calorie_balance', {
+    enum: ['neutral', 'heavier-lunch', 'heavier-dinner'],
+  })
+    .notNull()
+    .default('neutral'),
+  avoidConsecutiveSameProtein: integer('avoid_consecutive_same_protein', { mode: 'boolean' })
+    .notNull()
+    .default(true),
+  avoidConsecutiveSameStarch: integer('avoid_consecutive_same_starch', { mode: 'boolean' })
+    .notNull()
+    .default(true),
+  preserveManualMeals: integer('preserve_manual_meals', { mode: 'boolean' })
+    .notNull()
+    .default(true),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
 export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),
   accounts: many(account),
@@ -413,6 +441,7 @@ export const schema = {
   household,
   householdMember,
   householdInvitation,
+  householdPlanningPreferences,
   userRelations,
   sessionRelations,
   accountRelations,

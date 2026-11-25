@@ -1,3 +1,9 @@
+import {
+  defaultHouseholdPlanningPreferences,
+  householdPlanningPreferencesSchema,
+  type HouseholdPlanningPreferences,
+  type SlotPreferenceKey,
+} from '@quisera/shared'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { and, asc, desc, eq, gt } from 'drizzle-orm'
 import { Hono } from 'hono'
@@ -6,7 +12,13 @@ import type { ApiHonoEnvironment } from '../app.js'
 import { requireSession } from '../app.js'
 import type { AuthInstance } from '../auth.js'
 import type { DatabaseClient } from '../db/connection.js'
-import { household, householdInvitation, householdMember, user } from '../db/schema.js'
+import {
+  household,
+  householdInvitation,
+  householdMember,
+  householdPlanningPreferences,
+  user,
+} from '../db/schema.js'
 
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000
 const usernamePattern = /^[a-z0-9._-]{3,30}$/
@@ -123,6 +135,51 @@ function ensureUserHousehold(database: DatabaseClient, userId: string) {
     .run()
 
   return { household: newHousehold, role: 'owner' as const }
+}
+
+function parseJsonArray<T>(raw: string, fallback: T[]): T[] {
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return Array.isArray(parsed) ? (parsed as T[]) : fallback
+  } catch {
+    return fallback
+  }
+}
+
+export function getHouseholdPlanningPreferences(
+  database: DatabaseClient,
+  userId: string,
+): HouseholdPlanningPreferences {
+  const { household: currentHousehold } = ensureUserHousehold(database, userId)
+  const row = database
+    .select()
+    .from(householdPlanningPreferences)
+    .where(eq(householdPlanningPreferences.householdId, currentHousehold.id))
+    .get()
+
+  if (!row) return { ...defaultHouseholdPlanningPreferences }
+
+  return {
+    freshProductsMaxDays: row.freshProductsMaxDays,
+    requiredSlots: parseJsonArray<SlotPreferenceKey>(
+      row.requiredSlotsJson,
+      defaultHouseholdPlanningPreferences.requiredSlots,
+    ),
+    excludedSlots: parseJsonArray<SlotPreferenceKey>(
+      row.excludedSlotsJson,
+      defaultHouseholdPlanningPreferences.excludedSlots,
+    ),
+    weekdayMaxPrepMinutes: row.weekdayMaxPrepMinutes,
+    longRecipeDays: parseJsonArray<number>(
+      row.longRecipeDaysJson,
+      defaultHouseholdPlanningPreferences.longRecipeDays,
+    ),
+    maxDailyCalories: row.maxDailyCalories,
+    calorieBalance: row.calorieBalance,
+    avoidConsecutiveSameProtein: row.avoidConsecutiveSameProtein,
+    avoidConsecutiveSameStarch: row.avoidConsecutiveSameStarch,
+    preserveManualMeals: row.preserveManualMeals,
+  }
 }
 
 export function createHouseholdRoutes(
@@ -538,6 +595,65 @@ export function createHouseholdRoutes(
       .run()
 
     return context.json({ ok: true })
+  })
+
+  routes.get('/preferences', requireSession(auth), (context) => {
+    const current = context.get('session')
+    const preferences = getHouseholdPlanningPreferences(database, current.user.id)
+    return context.json({ preferences })
+  })
+
+  routes.put('/preferences', requireSession(auth), async (context) => {
+    const current = context.get('session')
+    const { household: currentHousehold } = ensureUserHousehold(database, current.user.id)
+    const body = householdPlanningPreferencesSchema.safeParse(
+      await context.req.json().catch(() => null),
+    )
+    if (!body.success) {
+      return context.json({ error: body.error.issues[0]?.message ?? 'Préférences invalides.' }, 400)
+    }
+
+    const data = body.data
+    const now = new Date()
+    const values = {
+      householdId: currentHousehold.id,
+      freshProductsMaxDays: data.freshProductsMaxDays,
+      requiredSlotsJson: JSON.stringify([...new Set(data.requiredSlots)]),
+      excludedSlotsJson: JSON.stringify([...new Set(data.excludedSlots)]),
+      weekdayMaxPrepMinutes: data.weekdayMaxPrepMinutes,
+      longRecipeDaysJson: JSON.stringify([...new Set(data.longRecipeDays)]),
+      maxDailyCalories: data.maxDailyCalories,
+      calorieBalance: data.calorieBalance,
+      avoidConsecutiveSameProtein: data.avoidConsecutiveSameProtein,
+      avoidConsecutiveSameStarch: data.avoidConsecutiveSameStarch,
+      preserveManualMeals: data.preserveManualMeals,
+      updatedAt: now,
+    }
+
+    database
+      .insert(householdPlanningPreferences)
+      .values(values)
+      .onConflictDoUpdate({
+        target: householdPlanningPreferences.householdId,
+        set: {
+          freshProductsMaxDays: values.freshProductsMaxDays,
+          requiredSlotsJson: values.requiredSlotsJson,
+          excludedSlotsJson: values.excludedSlotsJson,
+          weekdayMaxPrepMinutes: values.weekdayMaxPrepMinutes,
+          longRecipeDaysJson: values.longRecipeDaysJson,
+          maxDailyCalories: values.maxDailyCalories,
+          calorieBalance: values.calorieBalance,
+          avoidConsecutiveSameProtein: values.avoidConsecutiveSameProtein,
+          avoidConsecutiveSameStarch: values.avoidConsecutiveSameStarch,
+          preserveManualMeals: values.preserveManualMeals,
+          updatedAt: values.updatedAt,
+        },
+      })
+      .run()
+
+    return context.json({
+      preferences: getHouseholdPlanningPreferences(database, current.user.id),
+    })
   })
 
   return routes

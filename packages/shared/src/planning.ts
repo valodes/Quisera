@@ -87,6 +87,63 @@ export type DistributionResult = {
   unassigned: number
 }
 
+export const slotPreferenceKeySchema = z.string().regex(/^[0-6]:(lunch|dinner)$/)
+export type SlotPreferenceKey = `${0 | 1 | 2 | 3 | 4 | 5 | 6}:${MealPeriod}`
+
+export const calorieBalanceSchema = z.enum(['neutral', 'heavier-lunch', 'heavier-dinner'])
+export type CalorieBalance = z.infer<typeof calorieBalanceSchema>
+
+export const householdPlanningPreferencesSchema = z
+  .object({
+    freshProductsMaxDays: z.number().int().min(1).max(7).nullable(),
+    requiredSlots: z.array(slotPreferenceKeySchema).max(14),
+    excludedSlots: z.array(slotPreferenceKeySchema).max(14),
+    weekdayMaxPrepMinutes: z.number().int().min(5).max(180).nullable(),
+    longRecipeDays: z.array(z.number().int().min(0).max(6)).max(7),
+    maxDailyCalories: z.number().int().min(600).max(5000).nullable(),
+    calorieBalance: calorieBalanceSchema,
+    avoidConsecutiveSameProtein: z.boolean(),
+    avoidConsecutiveSameStarch: z.boolean(),
+    preserveManualMeals: z.boolean(),
+  })
+  .superRefine((value, context) => {
+    const excluded = new Set(value.excludedSlots)
+    const conflict = value.requiredSlots.find((slot) => excluded.has(slot))
+    if (conflict) {
+      context.addIssue({
+        code: 'custom',
+        path: ['requiredSlots'],
+        message: 'Un créneau ne peut pas être à la fois obligatoire et exclu.',
+      })
+    }
+  })
+
+export type HouseholdPlanningPreferences = {
+  freshProductsMaxDays: number | null
+  requiredSlots: SlotPreferenceKey[]
+  excludedSlots: SlotPreferenceKey[]
+  weekdayMaxPrepMinutes: number | null
+  longRecipeDays: number[]
+  maxDailyCalories: number | null
+  calorieBalance: CalorieBalance
+  avoidConsecutiveSameProtein: boolean
+  avoidConsecutiveSameStarch: boolean
+  preserveManualMeals: boolean
+}
+
+export const defaultHouseholdPlanningPreferences: HouseholdPlanningPreferences = {
+  freshProductsMaxDays: 3,
+  requiredSlots: ['1:lunch', '2:lunch', '3:lunch', '4:lunch', '5:lunch'],
+  excludedSlots: [],
+  weekdayMaxPrepMinutes: 30,
+  longRecipeDays: [6, 0],
+  maxDailyCalories: null,
+  calorieBalance: 'neutral',
+  avoidConsecutiveSameProtein: true,
+  avoidConsecutiveSameStarch: true,
+  preserveManualMeals: true,
+}
+
 export function isCivilDate(value: string): boolean {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
   if (!match) return false

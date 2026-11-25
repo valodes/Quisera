@@ -10,7 +10,15 @@ import {
   parisCivilDate,
   type PlanningRange,
 } from '@quisera/shared'
-import { ChevronLeft, ChevronRight, Clock3, Plus, RefreshCw, X } from '@lucide/vue'
+import {
+  ChevronLeft,
+  ChevronRight,
+  Clock3,
+  Plus,
+  RefreshCw,
+  SlidersHorizontal,
+  X,
+} from '@lucide/vue'
 import Button from '@/components/ui/Button.vue'
 import ScoreBadge from '@/components/ui/ScoreBadge.vue'
 import { useToast } from '@/components/ui/toast'
@@ -824,6 +832,13 @@ function onMealPointerDown(
           <Button :disabled="busy || !selections.length" @click="distribute"
             >Répartir les repas</Button
           >
+          <RouterLink
+            class="planning__prefs-link"
+            :to="{ name: 'settings', query: { tab: 'foyer', section: 'preferences' } }"
+          >
+            <SlidersHorizontal :size="15" aria-hidden="true" />
+            Préférences
+          </RouterLink>
         </template>
       </div>
     </div>
@@ -1440,6 +1455,30 @@ function onMealPointerDown(
   padding-block: 0.4rem;
   padding-inline: 0.75rem;
   font-size: var(--q-type-label);
+}
+.planning__prefs-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 38px;
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--q-leaf);
+  border-radius: var(--q-radius-control);
+  background: var(--q-peach);
+  color: var(--q-forest);
+  font-family: var(--q-font-display);
+  font-size: var(--q-type-label);
+  font-weight: 700;
+  text-decoration: none;
+
+  &:hover {
+    background: var(--q-shoot);
+  }
+
+  &:focus-visible {
+    outline: 3px solid var(--q-focus);
+    outline-offset: 2px;
+  }
 }
 .planning__day-slot {
   display: flex;

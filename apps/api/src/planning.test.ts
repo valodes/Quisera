@@ -200,7 +200,7 @@ describe('private delivery planning', () => {
       body: JSON.stringify({
         fromDate: '2026-11-19',
         fromPeriod: 'lunch',
-        toDate: '2026-11-20',
+        toDate: '2026-11-21',
         toPeriod: 'lunch',
       }),
     })
@@ -214,7 +214,7 @@ describe('private delivery planning', () => {
         'content-type': 'application/json',
       },
       body: JSON.stringify({
-        fromDate: '2026-11-20',
+        fromDate: '2026-11-21',
         fromPeriod: 'lunch',
         toDate: '2026-11-18',
         toPeriod: 'dinner',
@@ -236,7 +236,7 @@ describe('private delivery planning', () => {
       body: JSON.stringify({
         fromDate: '2026-11-18',
         fromPeriod: 'dinner',
-        toDate: '2026-11-20',
+        toDate: '2026-11-21',
         toPeriod: 'lunch',
       }),
     })
@@ -282,7 +282,7 @@ describe('private delivery planning', () => {
     expect(range.days.find((day) => day.date === '2026-11-19')?.lunch.meal?.title).toBe(
       'Sélection 2',
     )
-    expect(range.days.find((day) => day.date === '2026-11-20')?.lunch.meal?.title).toBe(
+    expect(range.days.find((day) => day.date === '2026-11-21')?.lunch.meal?.title).toBe(
       'Sélection 1',
     )
     expect(range.days).toHaveLength(8)

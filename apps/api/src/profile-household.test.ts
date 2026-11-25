@@ -239,4 +239,87 @@ describe('profile and household management', () => {
     )
     expect(forbiddenRemove.status).toBe(403)
   })
+
+  it('reads, validates and persists household planning preferences', async () => {
+    const cookie = await signIn(ownerAccount.email, ownerAccount.password)
+
+    const initialRes = await app.request('http://localhost:3131/api/household/preferences', {
+      headers: { cookie },
+    })
+    expect(initialRes.status).toBe(200)
+    const initialBody = (await initialRes.json()) as {
+      preferences: {
+        freshProductsMaxDays: number | null
+        requiredSlots: string[]
+        excludedSlots: string[]
+      }
+    }
+    expect(initialBody.preferences.freshProductsMaxDays).toBe(3)
+    expect(initialBody.preferences.requiredSlots).toContain('1:lunch')
+
+    // Rejects conflicting required & excluded slot
+    const conflictRes = await app.request('http://localhost:3131/api/household/preferences', {
+      method: 'PUT',
+      headers: {
+        cookie,
+        origin: 'http://localhost:3131',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        freshProductsMaxDays: 2,
+        requiredSlots: ['1:lunch'],
+        excludedSlots: ['1:lunch'],
+        weekdayMaxPrepMinutes: 25,
+        longRecipeDays: [6, 0],
+        maxDailyCalories: 1600,
+        calorieBalance: 'heavier-lunch',
+        avoidConsecutiveSameProtein: true,
+        avoidConsecutiveSameStarch: true,
+        preserveManualMeals: true,
+      }),
+    })
+    expect(conflictRes.status).toBe(400)
+
+    // Saves valid preferences
+    const saveRes = await app.request('http://localhost:3131/api/household/preferences', {
+      method: 'PUT',
+      headers: {
+        cookie,
+        origin: 'http://localhost:3131',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        freshProductsMaxDays: 2,
+        requiredSlots: ['1:lunch', '2:lunch', '3:lunch', '4:lunch', '5:lunch'],
+        excludedSlots: ['5:dinner'],
+        weekdayMaxPrepMinutes: 25,
+        longRecipeDays: [6, 0],
+        maxDailyCalories: 1600,
+        calorieBalance: 'heavier-lunch',
+        avoidConsecutiveSameProtein: true,
+        avoidConsecutiveSameStarch: false,
+        preserveManualMeals: true,
+      }),
+    })
+    expect(saveRes.status).toBe(200)
+
+    const reloadedRes = await app.request('http://localhost:3131/api/household/preferences', {
+      headers: { cookie },
+    })
+    expect(reloadedRes.status).toBe(200)
+    const reloadedBody = (await reloadedRes.json()) as {
+      preferences: {
+        freshProductsMaxDays: number | null
+        excludedSlots: string[]
+        maxDailyCalories: number | null
+        calorieBalance: string
+        avoidConsecutiveSameStarch: boolean
+      }
+    }
+    expect(reloadedBody.preferences.freshProductsMaxDays).toBe(2)
+    expect(reloadedBody.preferences.excludedSlots).toEqual(['5:dinner'])
+    expect(reloadedBody.preferences.maxDailyCalories).toBe(1600)
+    expect(reloadedBody.preferences.calorieBalance).toBe('heavier-lunch')
+    expect(reloadedBody.preferences.avoidConsecutiveSameStarch).toBe(false)
+  })
 })

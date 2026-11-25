@@ -60,7 +60,7 @@ export function syncDeliveryRecipes(id: string) {
   )
 }
 
-export function distributeDelivery(id: string, confirmed = false) {
+export function distributeDelivery(id: string, confirmed = false, replaceManual = false) {
   return request<{
     assigned: number
     leftEmpty: number
@@ -69,7 +69,7 @@ export function distributeDelivery(id: string, confirmed = false) {
   }>(`/deliveries/${encodeURIComponent(id)}/distribute`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ confirmed }),
+    body: JSON.stringify({ confirmed, replaceManual }),
   })
 }
 

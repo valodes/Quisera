@@ -8,12 +8,14 @@ import {
   Mail,
   Palette,
   ShieldCheck,
+  SlidersHorizontal,
   Trash2,
   User,
   UserPlus,
   Users,
 } from '@lucide/vue'
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
+import HouseholdPreferencesPanel from '@/components/settings/HouseholdPreferencesPanel.vue'
 import Button from '@/components/ui/Button.vue'
 import { authClient } from '@/auth/client'
 import { applyTheme, getStoredTheme, themeOptions, type ThemeId } from '@/styles/themes'
@@ -32,15 +34,23 @@ import {
 } from '@/account/api'
 
 type TabId = 'profil' | 'foyer'
+type FoyerSectionId = 'membres' | 'preferences'
 
 const route = useRoute()
 const router = useRouter()
 const session = authClient.useSession()
 
 const activeTab = computed<TabId>(() => (route.query['tab'] === 'foyer' ? 'foyer' : 'profil'))
+const activeFoyerSection = computed<FoyerSectionId>(() =>
+  route.query['section'] === 'preferences' ? 'preferences' : 'membres',
+)
 
 function switchTab(tab: TabId) {
   void router.replace({ query: { ...route.query, tab } })
+}
+
+function switchFoyerSection(section: FoyerSectionId) {
+  void router.replace({ query: { ...route.query, tab: 'foyer', section } })
 }
 
 // Profile state
@@ -560,185 +570,233 @@ onMounted(() => {
 
     <!-- FOYER TAB -->
     <TabsContent value="foyer" class="settings__panel">
-      <div v-if="householdLoading" class="settings__status" role="status">
-        Chargement de votre foyer…
-      </div>
-      <template v-else-if="household">
-        <header class="household-hero">
-          <form class="household-hero__form" @submit.prevent="submitHouseholdName">
-            <label class="household-hero__label">
-              <span>Nom du foyer</span>
-              <div class="household-hero__input-row">
-                <input v-model="householdNameInput" type="text" required maxlength="80" />
-                <Button type="submit" variant="secondary" :loading="householdRenaming"
-                  >Renommer</Button
-                >
-              </div>
-            </label>
-          </form>
-          <div class="household-hero__stats">
-            <span class="household-hero__stat">
-              <Users :size="15" aria-hidden="true" />
-              {{ household.members.length }}
-              {{ household.members.length > 1 ? 'membres' : 'membre' }}
-            </span>
-            <span class="household-hero__stat household-hero__stat--soft">
-              <Mail :size="15" aria-hidden="true" />
-              {{ household.invitations.length }}
-              {{
-                household.invitations.length > 1
-                  ? 'invitations en attente'
-                  : 'invitation en attente'
-              }}
-            </span>
+      <TabsRoot
+        class="settings__subtabs-root"
+        :model-value="activeFoyerSection"
+        @update:model-value="
+          (val) => switchFoyerSection(val === 'preferences' ? 'preferences' : 'membres')
+        "
+      >
+        <TabsList class="settings__subtabs" aria-label="Sections du foyer">
+          <TabsTrigger
+            value="membres"
+            class="settings__subtab"
+            :class="{ 'is-active': activeFoyerSection === 'membres' }"
+          >
+            <Users :size="16" aria-hidden="true" />
+            Membres & invitations
+          </TabsTrigger>
+          <TabsTrigger
+            value="preferences"
+            class="settings__subtab"
+            :class="{ 'is-active': activeFoyerSection === 'preferences' }"
+          >
+            <SlidersHorizontal :size="16" aria-hidden="true" />
+            Préférences planning
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="membres" class="settings__panel">
+          <div v-if="householdLoading" class="settings__status" role="status">
+            Chargement de votre foyer…
           </div>
-        </header>
-
-        <p v-if="householdError" class="settings__alert settings__alert--error" role="alert">
-          Erreur : {{ householdError }}
-        </p>
-        <p v-if="householdSuccess" class="settings__alert settings__alert--success" role="status">
-          {{ householdSuccess }}
-        </p>
-
-        <div class="settings__grid settings__grid--household">
-          <section class="settings-card">
-            <div class="settings-card__head">
-              <h3>
-                <Users :size="18" aria-hidden="true" />
-                Membres du foyer
-              </h3>
-              <p>Les membres partagent le même planning et la bibliothèque de recettes.</p>
-            </div>
-
-            <ul class="member-list">
-              <li v-for="member in household.members" :key="member.id" class="member-card">
-                <span
-                  class="member-card__avatar"
-                  :class="{
-                    'member-card__avatar--owner': member.role === 'owner',
-                  }"
-                  aria-hidden="true"
-                  >{{ member.name.slice(0, 1).toUpperCase() }}</span
-                >
-                <div class="member-card__info">
-                  <div class="member-card__title-row">
-                    <strong>{{ member.name }}</strong>
-                    <span v-if="member.username" class="member-card__handle"
-                      >@{{ member.username }}</span
+          <template v-else-if="household">
+            <header class="household-hero">
+              <form class="household-hero__form" @submit.prevent="submitHouseholdName">
+                <label class="household-hero__label">
+                  <span>Nom du foyer</span>
+                  <div class="household-hero__input-row">
+                    <input v-model="householdNameInput" type="text" required maxlength="80" />
+                    <Button type="submit" variant="secondary" :loading="householdRenaming"
+                      >Renommer</Button
                     >
-                    <span v-if="member.isCurrentUser" class="member-card__you">Vous</span>
-                    <span class="member-card__role" :class="`member-card__role--${member.role}`">{{
-                      member.role === 'owner' ? 'Propriétaire' : 'Membre'
-                    }}</span>
                   </div>
-                  <p class="member-card__meta">
-                    {{ member.email }} · Rejoint le
-                    {{ formatDate(member.joinedAt) }}
-                  </p>
-                </div>
-                <button
-                  v-if="household.currentUserRole === 'owner' && !member.isCurrentUser"
-                  type="button"
-                  class="member-card__remove"
-                  :aria-label="`Retirer ${member.name} du foyer`"
-                  @click="handleRemoveMember(member.id, member.name)"
-                >
-                  <Trash2 :size="16" aria-hidden="true" />
-                  Retirer
-                </button>
-              </li>
-            </ul>
-          </section>
+                </label>
+              </form>
+              <div class="household-hero__stats">
+                <span class="household-hero__stat">
+                  <Users :size="15" aria-hidden="true" />
+                  {{ household.members.length }}
+                  {{ household.members.length > 1 ? 'membres' : 'membre' }}
+                </span>
+                <span class="household-hero__stat household-hero__stat--soft">
+                  <Mail :size="15" aria-hidden="true" />
+                  {{ household.invitations.length }}
+                  {{
+                    household.invitations.length > 1
+                      ? 'invitations en attente'
+                      : 'invitation en attente'
+                  }}
+                </span>
+              </div>
+            </header>
 
-          <section class="settings-card">
-            <div class="settings-card__head">
-              <h3>
-                <UserPlus :size="18" aria-hidden="true" />
-                Inviter une personne
-              </h3>
-              <p>
-                Générez un lien d’invitation sécurisé valable 7 jours pour permettre à un proche de
-                rejoindre votre foyer.
-              </p>
-            </div>
-
-            <p v-if="inviteError" class="settings__alert settings__alert--error" role="alert">
-              Erreur : {{ inviteError }}
+            <p v-if="householdError" class="settings__alert settings__alert--error" role="alert">
+              Erreur : {{ householdError }}
+            </p>
+            <p
+              v-if="householdSuccess"
+              class="settings__alert settings__alert--success"
+              role="status"
+            >
+              {{ householdSuccess }}
             </p>
 
-            <form class="invite-form" @submit.prevent="submitInvitation">
-              <label class="settings-field">
-                <span>Adresse e-mail de la personne invitée</span>
-                <input
-                  v-model="inviteEmail"
-                  type="email"
-                  required
-                  placeholder="prenom@exemple.fr"
-                />
-              </label>
+            <div class="settings__grid settings__grid--household">
+              <section class="settings-card">
+                <div class="settings-card__head">
+                  <h3>
+                    <Users :size="18" aria-hidden="true" />
+                    Membres du foyer
+                  </h3>
+                  <p>Les membres partagent le même planning et la bibliothèque de recettes.</p>
+                </div>
 
-              <label class="settings-field">
-                <span>Prénom ou nom (facultatif)</span>
-                <input v-model="inviteName" type="text" maxlength="80" placeholder="ex. Camille" />
-              </label>
-
-              <div class="settings-card__actions">
-                <Button type="submit" :loading="inviting">
-                  <UserPlus :size="16" aria-hidden="true" />
-                  Créer le lien d’invitation
-                </Button>
-              </div>
-            </form>
-
-            <div v-if="createdInviteUrl" class="invite-link-box" role="status">
-              <strong>Lien d’invitation prêt à être partagé :</strong>
-              <div class="invite-link-box__row">
-                <input
-                  :value="createdInviteUrl"
-                  type="text"
-                  readonly
-                  aria-label="Lien d’invitation"
-                  @focus="($event.target as HTMLInputElement).select()"
-                />
-                <Button type="button" variant="secondary" @click="copyInviteUrl">
-                  <Check v-if="copiedLink" :size="16" aria-hidden="true" />
-                  <Copy v-else :size="16" aria-hidden="true" />
-                  {{ copiedLink ? 'Copié !' : 'Copier' }}
-                </Button>
-              </div>
-              <small
-                >Ce lien est à usage unique et expire dans 7 jours. Transmettez-le directement à
-                votre proche.</small
-              >
-            </div>
-
-            <div v-if="household.invitations.length" class="pending-invitations">
-              <h4>Invitations en attente</h4>
-              <ul>
-                <li v-for="inv in household.invitations" :key="inv.id" class="pending-invitation">
-                  <div>
-                    <strong>{{
-                      inv.invitedName ? `${inv.invitedName} · ${inv.email}` : inv.email
-                    }}</strong>
-                    <small
-                      >Invité par {{ inv.invitedByName }} · Expire le
-                      {{ formatDate(inv.expiresAt) }}</small
+                <ul class="member-list">
+                  <li v-for="member in household.members" :key="member.id" class="member-card">
+                    <span
+                      class="member-card__avatar"
+                      :class="{
+                        'member-card__avatar--owner': member.role === 'owner',
+                      }"
+                      aria-hidden="true"
+                      >{{ member.name.slice(0, 1).toUpperCase() }}</span
                     >
+                    <div class="member-card__info">
+                      <div class="member-card__title-row">
+                        <strong>{{ member.name }}</strong>
+                        <span v-if="member.username" class="member-card__handle"
+                          >@{{ member.username }}</span
+                        >
+                        <span v-if="member.isCurrentUser" class="member-card__you">Vous</span>
+                        <span
+                          class="member-card__role"
+                          :class="`member-card__role--${member.role}`"
+                          >{{ member.role === 'owner' ? 'Propriétaire' : 'Membre' }}</span
+                        >
+                      </div>
+                      <p class="member-card__meta">
+                        {{ member.email }} · Rejoint le
+                        {{ formatDate(member.joinedAt) }}
+                      </p>
+                    </div>
+                    <button
+                      v-if="household.currentUserRole === 'owner' && !member.isCurrentUser"
+                      type="button"
+                      class="member-card__remove"
+                      :aria-label="`Retirer ${member.name} du foyer`"
+                      @click="handleRemoveMember(member.id, member.name)"
+                    >
+                      <Trash2 :size="16" aria-hidden="true" />
+                      Retirer
+                    </button>
+                  </li>
+                </ul>
+              </section>
+
+              <section class="settings-card">
+                <div class="settings-card__head">
+                  <h3>
+                    <UserPlus :size="18" aria-hidden="true" />
+                    Inviter une personne
+                  </h3>
+                  <p>
+                    Générez un lien d’invitation sécurisé valable 7 jours pour permettre à un proche
+                    de rejoindre votre foyer.
+                  </p>
+                </div>
+
+                <p v-if="inviteError" class="settings__alert settings__alert--error" role="alert">
+                  Erreur : {{ inviteError }}
+                </p>
+
+                <form class="invite-form" @submit.prevent="submitInvitation">
+                  <label class="settings-field">
+                    <span>Adresse e-mail de la personne invitée</span>
+                    <input
+                      v-model="inviteEmail"
+                      type="email"
+                      required
+                      placeholder="prenom@exemple.fr"
+                    />
+                  </label>
+
+                  <label class="settings-field">
+                    <span>Prénom ou nom (facultatif)</span>
+                    <input
+                      v-model="inviteName"
+                      type="text"
+                      maxlength="80"
+                      placeholder="ex. Camille"
+                    />
+                  </label>
+
+                  <div class="settings-card__actions">
+                    <Button type="submit" :loading="inviting">
+                      <UserPlus :size="16" aria-hidden="true" />
+                      Créer le lien d’invitation
+                    </Button>
                   </div>
-                  <button
-                    type="button"
-                    class="pending-invitation__revoke"
-                    @click="handleRevokeInvitation(inv.id)"
+                </form>
+
+                <div v-if="createdInviteUrl" class="invite-link-box" role="status">
+                  <strong>Lien d’invitation prêt à être partagé :</strong>
+                  <div class="invite-link-box__row">
+                    <input
+                      :value="createdInviteUrl"
+                      type="text"
+                      readonly
+                      aria-label="Lien d’invitation"
+                      @focus="($event.target as HTMLInputElement).select()"
+                    />
+                    <Button type="button" variant="secondary" @click="copyInviteUrl">
+                      <Check v-if="copiedLink" :size="16" aria-hidden="true" />
+                      <Copy v-else :size="16" aria-hidden="true" />
+                      {{ copiedLink ? 'Copié !' : 'Copier' }}
+                    </Button>
+                  </div>
+                  <small
+                    >Ce lien est à usage unique et expire dans 7 jours. Transmettez-le directement à
+                    votre proche.</small
                   >
-                    Révoquer
-                  </button>
-                </li>
-              </ul>
+                </div>
+
+                <div v-if="household.invitations.length" class="pending-invitations">
+                  <h4>Invitations en attente</h4>
+                  <ul>
+                    <li
+                      v-for="inv in household.invitations"
+                      :key="inv.id"
+                      class="pending-invitation"
+                    >
+                      <div>
+                        <strong>{{
+                          inv.invitedName ? `${inv.invitedName} · ${inv.email}` : inv.email
+                        }}</strong>
+                        <small
+                          >Invité par {{ inv.invitedByName }} · Expire le
+                          {{ formatDate(inv.expiresAt) }}</small
+                        >
+                      </div>
+                      <button
+                        type="button"
+                        class="pending-invitation__revoke"
+                        @click="handleRevokeInvitation(inv.id)"
+                      >
+                        Révoquer
+                      </button>
+                    </li>
+                  </ul>
+                </div>
+              </section>
             </div>
-          </section>
-        </div>
-      </template>
+          </template>
+        </TabsContent>
+
+        <TabsContent value="preferences" class="settings__panel">
+          <HouseholdPreferencesPanel />
+        </TabsContent>
+      </TabsRoot>
     </TabsContent>
   </TabsRoot>
 </template>
@@ -783,6 +841,43 @@ onMounted(() => {
 .settings__tab.is-active {
   background: var(--q-forest);
   color: var(--q-peach);
+}
+.settings__subtabs-root {
+  display: grid;
+  gap: var(--q-space-4);
+}
+.settings__subtabs {
+  display: inline-flex;
+  width: fit-content;
+  flex-wrap: wrap;
+  gap: var(--q-space-2);
+}
+.settings__subtab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: var(--q-touch-target);
+  padding: 0 var(--q-space-4);
+  border: 1px solid var(--q-leaf);
+  border-radius: var(--q-radius-control);
+  background: var(--q-peach);
+  color: var(--q-forest);
+  font-family: var(--q-font-display);
+  font-size: var(--q-type-label);
+  font-weight: 700;
+  cursor: pointer;
+}
+.settings__subtab:hover:not(.is-active) {
+  background: var(--q-shoot);
+}
+.settings__subtab.is-active {
+  background: var(--q-shoot);
+  border-color: var(--q-forest);
+  color: var(--q-forest);
+}
+.settings__subtab:focus-visible {
+  outline: 3px solid var(--q-focus);
+  outline-offset: 2px;
 }
 .settings__tab-count {
   display: inline-grid;

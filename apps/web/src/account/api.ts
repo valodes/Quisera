@@ -1,3 +1,5 @@
+import type { HouseholdPlanningPreferences } from '@quisera/shared'
+
 export type UserProfile = {
   id: string
   name: string
@@ -135,6 +137,27 @@ export async function getPublicInvitation(token: string) {
     `/api/household/invitations/${encodeURIComponent(token)}`,
   )
   return result.invitation
+}
+
+export async function getHouseholdPreferences(): Promise<HouseholdPlanningPreferences> {
+  const result = await request<{ preferences: HouseholdPlanningPreferences }>(
+    '/api/household/preferences',
+  )
+  return result.preferences
+}
+
+export async function updateHouseholdPreferences(
+  preferences: HouseholdPlanningPreferences,
+): Promise<HouseholdPlanningPreferences> {
+  const result = await request<{ preferences: HouseholdPlanningPreferences }>(
+    '/api/household/preferences',
+    {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(preferences),
+    },
+  )
+  return result.preferences
 }
 
 export async function acceptHouseholdInvitation(

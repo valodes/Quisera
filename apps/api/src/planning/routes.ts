@@ -13,11 +13,13 @@ import { requireSession } from '../app.js'
 import type { AuthInstance } from '../auth.js'
 import type { DatabaseClient } from '../db/connection.js'
 import { deliveryCycle, deliverySelection, plannedMeal, recipe } from '../db/schema.js'
+import { getHouseholdPlanningPreferences } from '../household/routes.js'
 import {
   createQuitoqueClient,
   QuitoqueApiError,
   type QuitoqueDeliverySelection,
 } from '../quitoque/client.js'
+import { autoDistributeSelections } from './auto-distribute.js'
 
 export type QuitoquePlanningClient = Pick<
   ReturnType<typeof createQuitoqueClient>,
@@ -349,9 +351,16 @@ export function createPlanningRoutes(
       .get()
     if (!cycle) return context.json({ error: 'Livraison introuvable.' }, 404)
     const body = z
-      .object({ confirmed: z.boolean().default(false) })
+      .object({
+        confirmed: z.boolean().default(false),
+        replaceManual: z.boolean().default(false),
+      })
       .safeParse(await context.req.json().catch(() => ({})))
     if (!body.success) return context.json({ error: 'Confirmation invalide.' }, 400)
+    const currentSession = context.get('session')
+    const preferences = getHouseholdPlanningPreferences(database, currentSession.user.id)
+    const shouldPreserveManual = preferences.preserveManualMeals && !body.data.replaceManual
+
     const slots = deliveryCycleSlots(cycle.deliveryDate)
     const selected = database
       .select()
@@ -375,8 +384,13 @@ export function createPlanningRoutes(
       .from(plannedMeal)
       .where(and(gte(plannedMeal.date, slots[0]!.date), lte(plannedMeal.date, slots.at(-1)!.date)))
       .all()
+    const preservedMeals = shouldPreserveManual
+      ? occupied.filter(
+          (meal) => !(meal.origin === 'automatic' && meal.deliveryCycleId === cycle.id),
+        )
+      : []
     const manuallyUsedSelections = new Set(
-      occupied
+      preservedMeals
         .filter((meal) => meal.origin === 'manual' && meal.deliverySelectionId)
         .map((meal) => meal.deliverySelectionId!),
     )
@@ -384,56 +398,74 @@ export function createPlanningRoutes(
       (selection) => !manuallyUsedSelections.has(selection.id),
     )
     const preservedManual = slots.filter((slot) =>
-      occupied.some(
+      preservedMeals.some(
         (meal) =>
           meal.date === slot.date && meal.period === slot.period && meal.origin === 'manual',
       ),
     )
+    const mealsToReplace = shouldPreserveManual ? automatic : occupied
     const availableSlots = slots.filter(
       (slot) =>
-        !occupied.some(
-          (meal) =>
-            meal.date === slot.date &&
-            meal.period === slot.period &&
-            !(meal.origin === 'automatic' && meal.deliveryCycleId === cycle.id),
-        ),
+        !preservedMeals.some((meal) => meal.date === slot.date && meal.period === slot.period),
     ).length
-    if (automatic.length && !body.data.confirmed)
+    if (mealsToReplace.length && !body.data.confirmed)
       return context.json(
         {
-          error: 'Confirmez le remplacement de la répartition automatique existante.',
+          error: 'Confirmez le remplacement de la répartition existante.',
           preview: {
-            toReplace: automatic.length,
+            toReplace: mealsToReplace.length,
             availableSlots,
             recipeCount: selected.length,
           },
         },
         409,
       )
+
+    const selectionCalories = new Map(selected.map((item) => [item.id, item.caloriesKcal]))
+    const occupiedForSolver = preservedMeals.map((meal) => ({
+      date: meal.date,
+      period: meal.period,
+      caloriesKcal: meal.deliverySelectionId
+        ? (selectionCalories.get(meal.deliverySelectionId) ?? null)
+        : null,
+    }))
+
+    const plan = autoDistributeSelections(
+      cycle.deliveryDate,
+      remainingSelections.map((item) => ({
+        id: item.id,
+        title: item.title,
+        totalMinutes: item.totalMinutes,
+        caloriesKcal: item.caloriesKcal,
+        ingredientsJson: item.ingredientsJson,
+      })),
+      occupiedForSolver,
+      preferences,
+    )
+
     const now = new Date()
     let assigned = 0
     const preserved = preservedManual.length
     database.transaction((tx) => {
-      for (const meal of automatic) tx.delete(plannedMeal).where(eq(plannedMeal.id, meal.id)).run()
-      let selectionIndex = 0
-      for (const slot of slots) {
+      for (const meal of mealsToReplace) {
+        tx.delete(plannedMeal).where(eq(plannedMeal.id, meal.id)).run()
+      }
+      for (const item of plan) {
         const any = tx
           .select()
           .from(plannedMeal)
-          .where(and(eq(plannedMeal.date, slot.date), eq(plannedMeal.period, slot.period)))
+          .where(and(eq(plannedMeal.date, item.date), eq(plannedMeal.period, item.period)))
           .get()
         if (any) continue
-        const item = remainingSelections[selectionIndex++]
-        if (!item) continue
         tx.insert(plannedMeal)
           .values({
             id: randomUUID(),
-            date: slot.date,
-            period: slot.period,
+            date: item.date,
+            period: item.period,
             category: 'quitoque',
             origin: 'automatic',
             deliveryCycleId: cycle.id,
-            deliverySelectionId: item.id,
+            deliverySelectionId: item.selectionId,
             homeRecipeId: null,
             restaurantName: null,
             notes: null,
