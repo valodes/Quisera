@@ -9,6 +9,7 @@ import { createAuth } from './auth.js'
 import { parseEnvironment } from './config/env.js'
 import { openDatabase } from './db/connection.js'
 import { session, user } from './db/schema.js'
+import type { PasswordResetMailPayload } from './mail/mailer.js'
 
 const testEnvironment = {
   NODE_ENV: 'test' as const,
@@ -17,6 +18,8 @@ const testEnvironment = {
   BETTER_AUTH_SECRET: 'local-isolated-test-secret-with-at-least-32-bytes',
   SQLITE_PATH: ':memory:',
   RECIPE_UPLOAD_DIR: '../../data/recipe-photos',
+  SMTP_PORT: 587,
+  SMTP_SECURE: false,
   API_HOST: '127.0.0.1',
   API_PORT: 3000,
 }
@@ -30,6 +33,7 @@ let directory = ''
 let connection: ReturnType<typeof openDatabase>
 let auth: ReturnType<typeof createAuth>
 let app: ReturnType<typeof createApp>
+let sentResetEmails: PasswordResetMailPayload[] = []
 
 function createTestDatabase(path = ':memory:') {
   const opened = openDatabase(path)
@@ -58,17 +62,20 @@ async function signIn() {
 }
 
 function sessionCookie(response: Response) {
-  const cookie = response.headers
-    .get('set-cookie')
-    ?.match(/better-auth\.session_token=[^;,]+/)?.[0]
+  const cookie = response.headers.get('set-cookie')?.match(/better-auth\.session_token=[^;,]+/)?.[0]
   expect(cookie).toBeTruthy()
   return cookie!
 }
 
 beforeEach(() => {
   directory = mkdtempSync(join(tmpdir(), 'quisera-auth-test-'))
+  sentResetEmails = []
   connection = createTestDatabase()
-  auth = createAuth(testEnvironment, connection.client)
+  auth = createAuth(testEnvironment, connection.client, {
+    async sendPasswordResetEmail(payload) {
+      sentResetEmails.push(payload)
+    },
+  })
   app = createApp({ auth, database: connection, environment: testEnvironment })
 })
 
@@ -78,7 +85,18 @@ afterEach(() => {
 })
 
 describe('private authentication', () => {
-  it('keeps public account creation and unauthenticated private access closed', async () => {
+  it('allows public account creation while keeping unauthenticated private and admin access closed', async () => {
+    const privateResponse = await app.request('/api/me')
+    const adminApi = await app.request('/api/auth/admin/create-user', {
+      method: 'POST',
+    })
+
+    expect(privateResponse.status).toBe(401)
+    expect(await privateResponse.json()).toEqual({
+      error: 'Authentification requise.',
+    })
+    expect(adminApi.status).toBe(404)
+
     const signup = await app.request('/api/auth/sign-up/email', {
       method: 'POST',
       headers: {
@@ -87,20 +105,91 @@ describe('private authentication', () => {
       },
       body: JSON.stringify(testUser),
     })
-    const privateResponse = await app.request('/api/me')
-    const adminApi = await app.request('/api/auth/admin/create-user', {
-      method: 'POST',
-    })
 
-    expect(signup.status).not.toBe(200)
-    expect(privateResponse.status).toBe(401)
-    expect(await privateResponse.json()).toEqual({
-      error: 'Authentification requise.',
+    expect(signup.status).toBe(200)
+    const cookie = sessionCookie(signup)
+    const meAfterSignUp = await app.request('/api/me', {
+      headers: { cookie },
     })
-    expect(adminApi.status).toBe(404)
-    expect(
-      connection.client.select({ id: user.id }).from(user).all(),
-    ).toHaveLength(0)
+    expect(meAfterSignUp.status).toBe(200)
+    expect(await meAfterSignUp.json()).toMatchObject({
+      user: { email: testUser.email, name: testUser.name },
+    })
+    expect(connection.client.select({ id: user.id }).from(user).all()).toHaveLength(1)
+  })
+
+  it('requests a password reset, sends a reset link, resets the password and revokes existing sessions', async () => {
+    await createTestUser()
+    const existingCookie = sessionCookie(await signIn())
+
+    const unknownRequest = await app.request('/api/auth/request-password-reset', {
+      method: 'POST',
+      headers: {
+        origin: testEnvironment.APP_URL,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        email: 'nobody@quisera.invalid',
+        redirectTo: `${testEnvironment.APP_URL}/reinitialiser-mot-de-passe`,
+      }),
+    })
+    expect(unknownRequest.status).toBe(200)
+    expect(sentResetEmails).toHaveLength(0)
+
+    const resetRequest = await app.request('/api/auth/request-password-reset', {
+      method: 'POST',
+      headers: {
+        origin: testEnvironment.APP_URL,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        email: testUser.email,
+        redirectTo: `${testEnvironment.APP_URL}/reinitialiser-mot-de-passe`,
+      }),
+    })
+    expect(resetRequest.status).toBe(200)
+    expect(sentResetEmails).toHaveLength(1)
+    expect(sentResetEmails[0]?.to).toBe(testUser.email)
+
+    const resetUrl = new URL(sentResetEmails[0]!.resetUrl)
+    const callbackResponse = await app.request(`${resetUrl.pathname}${resetUrl.search}`)
+    expect(callbackResponse.status).toBe(302)
+    const location = callbackResponse.headers.get('location')
+    expect(location).toBeTruthy()
+    const token = new URL(location!).searchParams.get('token')
+    expect(token).toBeTruthy()
+
+    const newPassword = 'brand-new-secure-password-456'
+    const resetResponse = await app.request('/api/auth/reset-password', {
+      method: 'POST',
+      headers: {
+        origin: testEnvironment.APP_URL,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        token,
+        newPassword,
+      }),
+    })
+    expect(resetResponse.status).toBe(200)
+
+    expect((await app.request('/api/me', { headers: { cookie: existingCookie } })).status).toBe(401)
+
+    const oldSignIn = await signIn()
+    expect(oldSignIn.status).toBe(401)
+
+    const newSignIn = await app.request('/api/auth/sign-in/email', {
+      method: 'POST',
+      headers: {
+        origin: testEnvironment.APP_URL,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        email: testUser.email,
+        password: newPassword,
+      }),
+    })
+    expect(newSignIn.status).toBe(200)
   })
 
   it('authenticates, reads and revokes a persistent session', async () => {
@@ -125,9 +214,7 @@ describe('private authentication', () => {
     expect(cookieAttributes).toContain('samesite=lax')
     expect(cookieAttributes).not.toContain('; secure')
     const cookie = sessionCookie(signedIn)
-    expect(
-      await auth.api.getSession({ headers: new Headers({ cookie }) }),
-    ).not.toBeNull()
+    expect(await auth.api.getSession({ headers: new Headers({ cookie }) })).not.toBeNull()
     const privateResponse = await app.request('/api/me', {
       headers: { cookie },
     })
@@ -141,9 +228,7 @@ describe('private authentication', () => {
       headers: { origin: testEnvironment.APP_URL, cookie },
     })
     expect(signedOut.status).toBe(200)
-    expect((await app.request('/api/me', { headers: { cookie } })).status).toBe(
-      401,
-    )
+    expect((await app.request('/api/me', { headers: { cookie } })).status).toBe(401)
   })
 
   it('rejects untrusted origins and enforces the login rate limit', async () => {
@@ -185,9 +270,7 @@ describe('private authentication', () => {
       .update(session)
       .set({ expiresAt: new Date(0) })
       .run()
-    expect((await app.request('/api/me', { headers: { cookie } })).status).toBe(
-      401,
-    )
+    expect((await app.request('/api/me', { headers: { cookie } })).status).toBe(401)
   })
 
   it('marks session cookies Secure when production HTTPS is configured', async () => {
@@ -205,10 +288,7 @@ describe('private authentication', () => {
       body: { email: testUser.email, password: testUser.password },
       returnHeaders: true,
     })
-    const cookieAttributes = signedIn.headers
-      .getSetCookie()
-      .join('; ')
-      .toLowerCase()
+    const cookieAttributes = signedIn.headers.getSetCookie().join('; ').toLowerCase()
 
     expect(cookieAttributes).toContain('httponly')
     expect(cookieAttributes).toContain('secure')
@@ -219,10 +299,7 @@ describe('private authentication', () => {
     const path = join(directory, 'persistent.sqlite')
     connection.close()
     connection = createTestDatabase(path)
-    auth = createAuth(
-      { ...testEnvironment, SQLITE_PATH: path },
-      connection.client,
-    )
+    auth = createAuth({ ...testEnvironment, SQLITE_PATH: path }, connection.client)
     app = createApp({
       auth,
       database: connection,
@@ -233,24 +310,17 @@ describe('private authentication', () => {
     connection.close()
 
     connection = openDatabase(path)
-    auth = createAuth(
-      { ...testEnvironment, SQLITE_PATH: path },
-      connection.client,
-    )
+    auth = createAuth({ ...testEnvironment, SQLITE_PATH: path }, connection.client)
     app = createApp({
       auth,
       database: connection,
       environment: testEnvironment,
     })
-    expect((await app.request('/api/me', { headers: { cookie } })).status).toBe(
-      200,
-    )
+    expect((await app.request('/api/me', { headers: { cookie } })).status).toBe(200)
   })
 
   it('rejects missing or insecure production settings without exposing values', () => {
-    expect(() => parseEnvironment({})).toThrow(
-      'Invalid Quisera API configuration',
-    )
+    expect(() => parseEnvironment({})).toThrow('Invalid Quisera API configuration')
     expect(() =>
       parseEnvironment({
         NODE_ENV: 'production',
@@ -276,5 +346,19 @@ describe('private authentication', () => {
         QUITOQUE_MAIL: 'chef@example.invalid',
       }),
     ).toThrow('Both Quitoque credentials must be configured together')
+    expect(() =>
+      parseEnvironment({
+        ...validEnvironment,
+        SMTP_HOST: 'smtp.example.invalid',
+      }),
+    ).toThrow('SMTP_FROM is required when SMTP_HOST is configured')
+    expect(() =>
+      parseEnvironment({
+        ...validEnvironment,
+        SMTP_HOST: 'smtp.example.invalid',
+        SMTP_FROM: 'Quisera <no-reply@quisera.invalid>',
+        SMTP_USER: 'mailer',
+      }),
+    ).toThrow('Both SMTP_USER and SMTP_PASS must be configured together')
   })
 })

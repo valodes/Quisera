@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { Eye, EyeOff } from '@lucide/vue'
+import { isValidEmail } from '@quisera/shared'
 import { computed, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import Button from '@/components/ui/Button.vue'
 import TextInput from '@/components/ui/TextInput.vue'
 import { authClient, safeReturnTo } from '@/auth/client'
@@ -15,8 +16,11 @@ const loading = ref(false)
 const formError = ref('')
 const emailError = ref('')
 const passwordError = ref('')
-const passwordType = computed(() =>
-  passwordVisible.value ? 'text' : 'password',
+const passwordType = computed(() => (passwordVisible.value ? 'text' : 'password'))
+const signUpRoute = computed(() =>
+  typeof route.query['returnTo'] === 'string'
+    ? { name: 'inscription', query: { returnTo: route.query['returnTo'] } }
+    : { name: 'inscription' },
 )
 
 async function submit() {
@@ -24,7 +28,7 @@ async function submit() {
   passwordError.value = ''
   formError.value = ''
   const normalizedEmail = email.value.trim()
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+  if (!isValidEmail(normalizedEmail)) {
     emailError.value = 'Saisissez une adresse e-mail valide.'
   }
   if (!password.value) passwordError.value = 'Saisissez votre mot de passe.'
@@ -40,7 +44,7 @@ async function submit() {
       formError.value = 'Adresse e-mail ou mot de passe incorrect.'
       return
     }
-    await router.replace(safeReturnTo(route.query.returnTo))
+    await router.replace(safeReturnTo(route.query['returnTo']))
   } catch {
     formError.value = 'Connexion impossible pour le moment. Réessayez.'
   } finally {
@@ -64,9 +68,7 @@ async function submit() {
     <section class="login-form-panel" aria-labelledby="login-title">
       <div class="login-form-wrap">
         <h1 id="login-title">Ravi de vous retrouver.</h1>
-        <p class="login-intro">
-          Connectez-vous pour retrouver votre espace Quisera.
-        </p>
+        <p class="login-intro">Connectez-vous pour retrouver votre espace Quisera.</p>
 
         <form class="login-form" novalidate @submit.prevent="submit">
           <TextInput
@@ -89,11 +91,7 @@ async function submit() {
             <button
               type="button"
               class="password-toggle"
-              :aria-label="
-                passwordVisible
-                  ? 'Masquer le mot de passe'
-                  : 'Afficher le mot de passe'
-              "
+              :aria-label="passwordVisible ? 'Masquer le mot de passe' : 'Afficher le mot de passe'"
               :aria-pressed="passwordVisible"
               :disabled="loading"
               @click="passwordVisible = !passwordVisible"
@@ -101,6 +99,12 @@ async function submit() {
               <EyeOff v-if="passwordVisible" :size="19" aria-hidden="true" />
               <Eye v-else :size="19" aria-hidden="true" />
             </button>
+          </div>
+
+          <div class="auth-field-action">
+            <RouterLink class="auth-link" :to="{ name: 'forgot-password' }">
+              Mot de passe oublié ?
+            </RouterLink>
           </div>
 
           <p v-if="formError" class="login-error" role="alert">
@@ -111,6 +115,11 @@ async function submit() {
             {{ loading ? 'Connexion en cours' : 'Se connecter' }}
           </Button>
         </form>
+
+        <div class="auth-footer">
+          <span>Pas encore de compte ?</span>
+          <RouterLink class="auth-link" :to="signUpRoute"> Créer un compte </RouterLink>
+        </div>
 
         <p class="login-private-note">Espace privé · réservé à votre foyer</p>
       </div>

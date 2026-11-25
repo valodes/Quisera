@@ -1,9 +1,20 @@
 import { createRouter, createWebHistory } from 'vue-router'
+
+declare module 'vue-router' {
+  interface RouteMeta {
+    title?: string
+    public?: boolean
+    requiresAuth?: boolean
+  }
+}
 import NotFoundView from '@/views/NotFoundView.vue'
 import SectionPlaceholder from '@/views/SectionPlaceholder.vue'
 import { authClient, safeReturnTo } from '@/auth/client'
 import { navigationItems } from '@/app/navigation'
 import ConnexionView from '@/views/ConnexionView.vue'
+import InscriptionView from '@/views/InscriptionView.vue'
+import ForgotPasswordView from '@/views/ForgotPasswordView.vue'
+import ResetPasswordView from '@/views/ResetPasswordView.vue'
 import RecipeLibraryView from '@/views/RecipeLibraryView.vue'
 import RecipeDetailView from '@/views/RecipeDetailView.vue'
 import RecipeFormView from '@/views/RecipeFormView.vue'
@@ -27,6 +38,24 @@ const router = createRouter({
       name: 'connexion',
       component: ConnexionView,
       meta: { title: 'Connexion', public: true },
+    },
+    {
+      path: '/inscription',
+      name: 'inscription',
+      component: InscriptionView,
+      meta: { title: 'Créer un compte', public: true },
+    },
+    {
+      path: '/mot-de-passe-oublie',
+      name: 'forgot-password',
+      component: ForgotPasswordView,
+      meta: { title: 'Mot de passe oublié', public: true },
+    },
+    {
+      path: '/reinitialiser-mot-de-passe',
+      name: 'reset-password',
+      component: ResetPasswordView,
+      meta: { title: 'Réinitialiser le mot de passe', public: true },
     },
     {
       path: '/recettes',
@@ -109,10 +138,10 @@ const router = createRouter({
 
 router.beforeEach(async (to) => {
   if (to.meta.public) {
-    if (to.name === 'connexion') {
+    if (to.name === 'connexion' || to.name === 'inscription') {
       try {
         const session = await authClient.getSession()
-        if (session.data) return safeReturnTo(to.query.returnTo)
+        if (session.data) return safeReturnTo(to.query['returnTo'])
       } catch {
         return true
       }
