@@ -1,7 +1,19 @@
 import type { RecipeNutrition } from '@quisera/shared'
+import { LRUCache } from 'lru-cache'
 import { z } from 'zod'
 import { parseQuitoqueNutrition, parseQuitoqueServings } from './nutrition.js'
+import {
+  decodeQuitoqueJsonLoose as decodeJson,
+  parseQuitoqueMinutes as parseMinutes,
+  parseQuitoqueNameList as parseNameList,
+  parseQuitoqueScoreGrade as parseScoreGrade,
+  toQuitoqueThumbnailUrl as toThumbnailUrl,
+} from './parsers.js'
 import { QuitoqueApiError } from './client.js'
+import {
+  clearSharedQuitoqueSession,
+  getOrAuthenticateSharedQuitoqueSession,
+} from './token-cache.js'
 
 const apiOrigin = 'https://app.quitoque.fr'
 const apiBase = `${apiOrigin}/api/v2`
@@ -169,72 +181,6 @@ const filterEndpointSchema = z
       .optional(),
   })
   .passthrough()
-
-function decodeJson(value: unknown): unknown {
-  if (typeof value !== 'string') return value
-  try {
-    return JSON.parse(value)
-  } catch {
-    return value
-  }
-}
-
-function parseScoreGrade(value: unknown): string | null {
-  if (typeof value === 'string') {
-    const grade = value.trim().toUpperCase()
-    return /^[A-E]$/.test(grade) ? grade : null
-  }
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const record = value as Record<string, unknown>
-  for (const candidate of [
-    Object.keys(record)[0],
-    typeof record['grade'] === 'string' ? record['grade'] : undefined,
-    typeof record['value'] === 'string' ? record['value'] : undefined,
-  ]) {
-    const grade = candidate?.trim().toUpperCase()
-    if (grade && /^[A-E]$/.test(grade)) return grade
-  }
-  return null
-}
-
-function parseMinutes(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return Math.round(value)
-  if (typeof value !== 'string') return null
-  const match = value.trim().match(/^(\d{1,3})\s*(?:min|minutes?)$/i)
-  return match ? Number(match[1]) : null
-}
-
-function toThumbnailUrl(imagePath: unknown): string | null {
-  if (typeof imagePath !== 'string' || !imagePath.trim()) return null
-  const trimmed = imagePath.trim()
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-    try {
-      const url = new URL(trimmed)
-      return url.origin === apiOrigin ? url.toString() : null
-    } catch {
-      return null
-    }
-  }
-  if (trimmed.startsWith('/media/')) return `${apiOrigin}${trimmed}`
-  return `${apiOrigin}/media/cache/resolve/sylius_shop_product_thumbnail/${trimmed.replace(/^\/+/, '')}`
-}
-
-function parseNameList(value: unknown): string[] {
-  const decoded = decodeJson(value)
-  if (!Array.isArray(decoded)) return []
-  const names: string[] = []
-  for (const entry of decoded) {
-    if (
-      entry &&
-      typeof entry === 'object' &&
-      typeof (entry as Record<string, unknown>)['name'] === 'string'
-    ) {
-      const name = ((entry as Record<string, unknown>)['name'] as string).trim()
-      if (name && !names.includes(name)) names.push(name)
-    }
-  }
-  return names
-}
 
 function parseHighlightLabels(value: unknown): string[] {
   const decoded = decodeJson(value)
@@ -560,6 +506,7 @@ export function createQuitoqueBoxClient({
   password: string
   fetchImplementation?: typeof fetch
 }) {
+  const useSharedCache = fetchImplementation === fetch
   let cachedToken: string | null = null
   let cachedCustomerPath: string | null = null
   let cachedSubscriptionId: string | null = null
@@ -567,17 +514,17 @@ export function createQuitoqueBoxClient({
   let cachedLockMap: Map<string, { lock: string | null; onBreak: boolean }> | null = null
   let cachedLockExpiresAt = 0
   const cartTokensByOrderId = new Map<string, string>()
-  const catalogCache = new Map<
+  const catalogCache = new LRUCache<
     string,
     {
-      expiresAt: number
-      value: {
-        items: CatalogProduct[]
-        filterGroups: DynamicFilterGroup[]
-        seasonalCategories: string[]
-      }
+      items: CatalogProduct[]
+      filterGroups: DynamicFilterGroup[]
+      seasonalCategories: string[]
     }
-  >()
+  >({
+    max: 32,
+    ttl: 5 * 60_000,
+  })
 
   async function fetchWithTimeout(url: string, init: RequestInit) {
     const controller = new AbortController()
@@ -592,10 +539,7 @@ export function createQuitoqueBoxClient({
     }
   }
 
-  async function ensureAuth(force = false) {
-    if (!force && cachedToken && Date.now() < cachedTokenExpiresAt) {
-      return cachedToken
-    }
+  async function loginBox() {
     const response = await fetchWithTimeout(`${apiBase}/shop/authentication-token`, {
       method: 'POST',
       redirect: 'error',
@@ -612,8 +556,24 @@ export function createQuitoqueBoxClient({
     if (!parsed.success) {
       throw new QuitoqueApiError('Réponse d’authentification Quitoque invalide.')
     }
-    cachedToken = parsed.data.token
-    cachedCustomerPath = parsed.data.customer ?? cachedCustomerPath
+    return {
+      token: parsed.data.token,
+      customerPath: parsed.data.customer ?? null,
+    }
+  }
+
+  async function ensureAuth(force = false) {
+    if (useSharedCache) {
+      const { session } = await getOrAuthenticateSharedQuitoqueSession(email, force, loginBox)
+      if (session.customerPath) cachedCustomerPath = session.customerPath
+      return session.token
+    }
+    if (!force && cachedToken && Date.now() < cachedTokenExpiresAt) {
+      return cachedToken
+    }
+    const session = await loginBox()
+    cachedToken = session.token
+    cachedCustomerPath = session.customerPath ?? cachedCustomerPath
     cachedTokenExpiresAt = Date.now() + tokenTtlMs
     return cachedToken
   }
@@ -634,8 +594,12 @@ export function createQuitoqueBoxClient({
       redirect: 'error',
     })
     if (response.status === 401 && allowRetry) {
-      cachedToken = null
-      cachedTokenExpiresAt = 0
+      if (useSharedCache) {
+        clearSharedQuitoqueSession(email, token)
+      } else {
+        cachedToken = null
+        cachedTokenExpiresAt = 0
+      }
       return apiRequest(path, init, false)
     }
     if (response.status === 204) return { status: 204, data: null }
@@ -719,8 +683,8 @@ export function createQuitoqueBoxClient({
   }> {
     const cacheKey = `${start}:${end}:${section}`
     const cached = catalogCache.get(cacheKey)
-    if (cached && Date.now() < cached.expiresAt) {
-      return cached.value
+    if (cached) {
+      return cached
     }
     const familyParam = section === 'recipes' ? 'recipe' : 'market'
     const productsQuery = new URLSearchParams({
@@ -886,10 +850,7 @@ export function createQuitoqueBoxClient({
       .map(([name]) => name)
 
     const result = { items, filterGroups, seasonalCategories }
-    catalogCache.set(cacheKey, {
-      expiresAt: Date.now() + 5 * 60_000,
-      value: result,
-    })
+    catalogCache.set(cacheKey, result)
     return result
   }
 

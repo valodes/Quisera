@@ -6,7 +6,7 @@ import { HTTPException } from 'hono/http-exception'
 import { Hono } from 'hono'
 import type { AuthInstance, AuthSession } from './auth.js'
 import type { AppEnvironment } from './config/env.js'
-import type { DatabaseConnection } from './db/connection.js'
+import { purgeExpiredAuthArtifacts, type DatabaseConnection } from './db/connection.js'
 import { createRecipeRoutes } from './recipes/routes.js'
 import { createQuitoqueClient } from './quitoque/client.js'
 import { createPlanningRoutes, type QuitoquePlanningClient } from './planning/routes.js'
@@ -35,7 +35,7 @@ export function requireSession(auth: AuthInstance) {
     const session = await auth.api.getSession({
       headers: context.req.raw.headers,
     })
-    if (!session) {
+    if (!session || (session.user as { banned?: boolean | null }).banned) {
       return context.json({ error: 'Authentification requise.' }, 401)
     }
     context.set('session', session)
@@ -46,6 +46,10 @@ export function requireSession(auth: AuthInstance) {
 
 export function createApp({ auth, database, environment, quitoquePlanningClient }: Dependencies) {
   const app = new Hono<ApiHonoEnvironment>()
+
+  purgeExpiredAuthArtifacts(database.client)
+  const cleanupTimer = setInterval(() => purgeExpiredAuthArtifacts(database.client), 30 * 60_000)
+  cleanupTimer.unref()
 
   app.use('*', compress())
 

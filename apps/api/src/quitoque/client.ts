@@ -1,6 +1,11 @@
 import type { RecipeNutrition } from '@quisera/shared'
 import { z } from 'zod'
 import { parseQuitoqueNutrition, parseQuitoqueServings } from './nutrition.js'
+import { parseQuitoqueMinutes, parseQuitoqueScoreGrade } from './parsers.js'
+import {
+  clearSharedQuitoqueSession,
+  getOrAuthenticateSharedQuitoqueSession,
+} from './token-cache.js'
 
 const apiOrigin = 'https://app.quitoque.fr'
 const apiBase = `${apiOrigin}/api/v2`
@@ -270,31 +275,6 @@ function parseSteps(value: unknown) {
   return steps
 }
 
-function parseMinutes(value: unknown): number | null {
-  if (typeof value !== 'string') return null
-  const match = value.trim().match(/^(\d{1,3})\s*(?:min|minutes?)$/i)
-  return match ? Number(match[1]) : null
-}
-
-function parseScoreGrade(value: unknown): string | null {
-  if (typeof value === 'string') {
-    const grade = value.trim().toUpperCase()
-    return /^[A-E]$/.test(grade) ? grade : null
-  }
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const record = value as Record<string, unknown>
-  for (const candidate of [
-    Object.keys(record)[0],
-    typeof record['grade'] === 'string' ? record['grade'] : undefined,
-    typeof record['value'] === 'string' ? record['value'] : undefined,
-    typeof record['label'] === 'string' ? record['label'] : undefined,
-  ]) {
-    const grade = candidate?.trim().toUpperCase()
-    if (grade && /^[A-E]$/.test(grade)) return grade
-  }
-  return null
-}
-
 function parseLabelList(value: unknown, field: string) {
   if (value === null || value === undefined) return []
   const decoded = decodeJson(value)
@@ -345,15 +325,15 @@ function parseProduct(
         : null,
     imageUrl,
     thumbnailUrl,
-    totalMinutes: parseMinutes(product['total_time']),
+    totalMinutes: parseQuitoqueMinutes(product['total_time']),
     servings: parseQuitoqueServings(product),
     difficulty: null,
     category: parseLabelList(product['categories'], 'catégories')[0] ?? null,
     tags: parseLabelList(product['tags'], 'tags'),
     ingredients: parseIngredients(product),
     steps: parseSteps(product['preparation_steps']),
-    nutriScore: parseScoreGrade(product['nutri_score']),
-    carbonScore: parseScoreGrade(product['carbon_score']),
+    nutriScore: parseQuitoqueScoreGrade(product['nutri_score']),
+    carbonScore: parseQuitoqueScoreGrade(product['carbon_score']),
     nutrition: parseQuitoqueNutrition(product),
   }
 }
@@ -441,10 +421,19 @@ export function createQuitoqueClient({
     throw lastError ?? new Error('Quitoque operation deadline exceeded.')
   }
 
+  const useSharedCache = fetchImplementation === fetch
   let cachedToken: string | null = null
   let cachedTokenExpiresAt = 0
 
   async function getToken(deadline: number, forceRefresh = false) {
+    if (useSharedCache) {
+      const { session, fromCache } = await getOrAuthenticateSharedQuitoqueSession(
+        email,
+        forceRefresh,
+        async () => ({ token: await login(deadline), customerPath: null }),
+      )
+      return { token: session.token, fromCache }
+    }
     if (!forceRefresh && cachedToken && Date.now() < cachedTokenExpiresAt) {
       return { token: cachedToken, fromCache: true }
     }
@@ -468,7 +457,9 @@ export function createQuitoqueClient({
         deadline,
       )
       if (response.status === 401) {
-        if (cachedToken === token) {
+        if (useSharedCache) {
+          clearSharedQuitoqueSession(email, token)
+        } else if (cachedToken === token) {
           cachedToken = null
           cachedTokenExpiresAt = 0
         }

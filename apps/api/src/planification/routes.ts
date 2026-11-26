@@ -1,5 +1,6 @@
 import { civilDateSchema } from '@quisera/shared'
 import { Hono } from 'hono'
+import { LRUCache } from 'lru-cache'
 import { z } from 'zod'
 import type { ApiHonoEnvironment } from '../app.js'
 import { requireSession } from '../app.js'
@@ -61,7 +62,35 @@ const walletSchema = z.object({
   useWallet: z.boolean(),
 })
 
-const geocodeCache = new Map<string, { lat: number; lon: number } | null>()
+type GeocodeEntry = { coords: { lat: number; lon: number } | null }
+
+const geocodeCache = new LRUCache<string, GeocodeEntry>({
+  max: 500,
+  ttl: 24 * 60 * 60 * 1000,
+  fetchMethod: async (query, _staleValue, { signal }) => {
+    const params = new URLSearchParams({
+      q: query,
+      format: 'json',
+      limit: '1',
+    })
+    const response = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, {
+      headers: {
+        accept: 'application/json',
+        'user-agent': 'Quisera/1.0 (private household app)',
+      },
+      signal: AbortSignal.any([signal, AbortSignal.timeout(6000)]),
+    })
+    if (!response.ok) return { coords: null }
+    const rows = (await response.json()) as Array<{
+      lat?: string
+      lon?: string
+    }>
+    const first = rows[0]
+    const coords =
+      first?.lat && first?.lon ? { lat: Number(first.lat), lon: Number(first.lon) } : null
+    return { coords }
+  },
+})
 
 export function createPlanificationRoutes(auth: AuthInstance, boxClient?: QuitoqueBoxClient) {
   const routes = new Hono<ApiHonoEnvironment>()
@@ -288,35 +317,9 @@ export function createPlanificationRoutes(auth: AuthInstance, boxClient?: Quitoq
     if (query.length < 3 || query.length > 200) {
       return context.json({ coords: null })
     }
-    if (geocodeCache.has(query)) {
-      return context.json({ coords: geocodeCache.get(query) })
-    }
     try {
-      const params = new URLSearchParams({
-        q: query,
-        format: 'json',
-        limit: '1',
-      })
-      const response = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, {
-        headers: {
-          accept: 'application/json',
-          'user-agent': 'Quisera/1.0 (private household app)',
-        },
-        signal: AbortSignal.timeout(6000),
-      })
-      if (!response.ok) {
-        geocodeCache.set(query, null)
-        return context.json({ coords: null })
-      }
-      const rows = (await response.json()) as Array<{
-        lat?: string
-        lon?: string
-      }>
-      const first = rows[0]
-      const coords =
-        first?.lat && first?.lon ? { lat: Number(first.lat), lon: Number(first.lon) } : null
-      geocodeCache.set(query, coords)
-      return context.json({ coords })
+      const entry = await geocodeCache.fetch(query)
+      return context.json({ coords: entry?.coords ?? null })
     } catch {
       return context.json({ coords: null })
     }

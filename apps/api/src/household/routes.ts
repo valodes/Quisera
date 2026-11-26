@@ -17,6 +17,7 @@ import {
   householdInvitation,
   householdMember,
   householdPlanningPreferences,
+  session,
   user,
 } from '../db/schema.js'
 
@@ -584,15 +585,25 @@ export function createHouseholdRoutes(
       return context.json({ error: 'Membre introuvable dans ce foyer.' }, 404)
     }
 
-    database
-      .delete(householdMember)
-      .where(
-        and(
-          eq(householdMember.householdId, currentHousehold.id),
-          eq(householdMember.userId, targetUserId),
-        ),
-      )
-      .run()
+    database.transaction((tx) => {
+      tx.delete(householdMember)
+        .where(
+          and(
+            eq(householdMember.householdId, currentHousehold.id),
+            eq(householdMember.userId, targetUserId),
+          ),
+        )
+        .run()
+      tx.delete(session).where(eq(session.userId, targetUserId)).run()
+      tx.update(user)
+        .set({
+          banned: true,
+          banReason: 'Retiré du foyer',
+          updatedAt: new Date(),
+        })
+        .where(eq(user.id, targetUserId))
+        .run()
+    })
 
     return context.json({ ok: true })
   })

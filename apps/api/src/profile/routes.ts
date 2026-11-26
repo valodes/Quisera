@@ -1,4 +1,4 @@
-import { and, eq, ne, sql } from 'drizzle-orm'
+import { and, eq, gt, ne, sql } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import type { ApiHonoEnvironment } from '../app.js'
@@ -67,7 +67,7 @@ export function createProfileRoutes(database: DatabaseClient, auth: AuthInstance
     const sessionCountRow = database
       .select({ total: sql<number>`count(*)` })
       .from(session)
-      .where(eq(session.userId, current.user.id))
+      .where(and(eq(session.userId, current.user.id), gt(session.expiresAt, new Date())))
       .get()
     const total = sessionCountRow?.total ?? 0
 
@@ -187,7 +187,7 @@ export function createProfileRoutes(database: DatabaseClient, auth: AuthInstance
     const sessionCountRow = database
       .select({ total: sql<number>`count(*)` })
       .from(session)
-      .where(eq(session.userId, current.user.id))
+      .where(and(eq(session.userId, current.user.id), gt(session.expiresAt, new Date())))
       .get()
     const total = sessionCountRow?.total ?? 0
 

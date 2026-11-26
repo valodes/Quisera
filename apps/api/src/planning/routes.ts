@@ -12,7 +12,13 @@ import type { ApiHonoEnvironment } from '../app.js'
 import { requireSession } from '../app.js'
 import type { AuthInstance } from '../auth.js'
 import type { DatabaseClient } from '../db/connection.js'
-import { deliveryCycle, deliverySelection, plannedMeal, recipe } from '../db/schema.js'
+import {
+  deliveryCycle,
+  deliverySelection,
+  plannedMeal,
+  recipe,
+  recipeMetric,
+} from '../db/schema.js'
 import { getHouseholdPlanningPreferences } from '../household/routes.js'
 import {
   createQuitoqueClient,
@@ -115,30 +121,88 @@ export function createPlanningRoutes(
           )
           .all()
       : []
-    const houses = database.select().from(recipe).where(eq(recipe.source, 'house')).all()
+    const referencedHomeIds = [
+      ...new Set(meals.map((meal) => meal.homeRecipeId).filter((id): id is string => Boolean(id))),
+    ]
+    const houses = referencedHomeIds.length
+      ? database.select().from(recipe).where(inArray(recipe.id, referencedHomeIds)).all()
+      : []
+    const homeMetrics = referencedHomeIds.length
+      ? database
+          .select()
+          .from(recipeMetric)
+          .where(inArray(recipeMetric.recipeId, referencedHomeIds))
+          .all()
+      : []
+    const metricsByRecipeId = new Map<string, Map<string, string>>()
+    for (const metric of homeMetrics) {
+      let bucket = metricsByRecipeId.get(metric.recipeId)
+      if (!bucket) {
+        bucket = new Map()
+        metricsByRecipeId.set(metric.recipeId, bucket)
+      }
+      bucket.set(metric.key, metric.value)
+    }
+
     const summaries = new Map<
       string,
-      { title: string; imageUrl: string | null; thumbnailUrl: string | null }
+      {
+        title: string
+        imageUrl: string | null
+        thumbnailUrl: string | null
+        description: string | null
+        totalMinutes: number | null
+        caloriesKcal: number | null
+        nutriScore: string | null
+        carbonScore: string | null
+      }
     >()
     for (const selection of selections)
       summaries.set(selection.id, {
         title: selection.title,
         imageUrl: selection.photoUrl,
         thumbnailUrl: selection.photoThumbnailUrl,
+        description: selection.description,
+        totalMinutes: selection.totalMinutes,
+        caloriesKcal: selection.caloriesKcal,
+        nutriScore: selection.nutriScore,
+        carbonScore: selection.carbonScore,
       })
-    for (const home of houses)
+    for (const home of houses) {
+      const m = metricsByRecipeId.get(home.id)
+      const rawCalories = m?.get('calories') ? Number(m.get('calories')) : Number.NaN
       summaries.set(home.id, {
         title: home.title,
-        imageUrl: home.photoUrl,
-        thumbnailUrl: home.photoThumbnailUrl,
+        imageUrl: home.photoKey ? `/api/recipes/${home.id}/photo` : home.photoUrl,
+        thumbnailUrl:
+          home.photoThumbnailUrl ??
+          (home.photoKey ? `/api/recipes/${home.id}/photo?variant=thumb` : home.photoUrl),
+        description: home.description,
+        totalMinutes: home.totalMinutes,
+        caloriesKcal: Number.isFinite(rawCalories) ? Math.round(rawCalories) : null,
+        nutriScore: m?.get('nutriScore') ?? null,
+        carbonScore: m?.get('carbonScore') ?? null,
       })
+    }
+
+    const mealsBySlot = new Map<string, (typeof meals)[number]>()
+    for (const meal of meals) {
+      mealsBySlot.set(`${meal.date}:${meal.period}`, meal)
+    }
+    const deliveryDateSet = new Set(cycles.map((cycle) => cycle.deliveryDate))
+    const selectionCountByCycle = new Map<string, number>()
+    for (const selection of selections) {
+      selectionCountByCycle.set(
+        selection.deliveryCycleId,
+        (selectionCountByCycle.get(selection.deliveryCycleId) ?? 0) + 1,
+      )
+    }
+
     const dateRange: string[] = []
     for (let date = from; date <= to; date = addCivilDays(date, 1)) dateRange.push(date)
     const days = dateRange.map((date) => {
       const slot = (period: 'lunch' | 'dinner') => {
-        const meal = meals.find(
-          (candidate) => candidate.date === date && candidate.period === period,
-        )
+        const meal = mealsBySlot.get(`${date}:${period}`)
         const reference = meal?.deliverySelectionId ?? meal?.homeRecipeId
         const summary = reference ? summaries.get(reference) : undefined
         return {
@@ -156,13 +220,18 @@ export function createPlanningRoutes(
                 notes: meal.notes,
                 imageUrl: summary?.imageUrl ?? null,
                 thumbnailUrl: summary?.thumbnailUrl ?? null,
+                description: summary?.description ?? null,
+                totalMinutes: summary?.totalMinutes ?? null,
+                caloriesKcal: summary?.caloriesKcal ?? null,
+                nutriScore: summary?.nutriScore ?? null,
+                carbonScore: summary?.carbonScore ?? null,
               }
             : null,
         }
       }
       return {
         date,
-        isDeliveryDay: cycles.some((cycle) => cycle.deliveryDate === date),
+        isDeliveryDay: deliveryDateSet.has(date),
         lunch: slot('lunch'),
         dinner: slot('dinner'),
       }
@@ -175,8 +244,7 @@ export function createPlanningRoutes(
         periodStartDate: cycle.periodStartDate,
         periodEndDate: cycle.periodEndDate,
         lastSyncedAt: cycle.lastSyncedAt?.toISOString() ?? null,
-        recipeCount: selections.filter((selection) => selection.deliveryCycleId === cycle.id)
-          .length,
+        recipeCount: selectionCountByCycle.get(cycle.id) ?? 0,
       })),
     })
   })

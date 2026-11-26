@@ -230,6 +230,7 @@ describe('profile and household management', () => {
 
     // Non-owner cannot remove owner
     const ownerMember = updatedBody.household.members.find((m) => m.role === 'owner')!
+    const invitedMember = updatedBody.household.members.find((m) => m.role === 'member')!
     const forbiddenRemove = await app.request(
       `http://localhost:3131/api/household/members/${ownerMember.id}`,
       {
@@ -238,6 +239,26 @@ describe('profile and household management', () => {
       },
     )
     expect(forbiddenRemove.status).toBe(403)
+
+    // Owner removes member -> member's sessions and household access are immediately revoked
+    const ownerRemove = await app.request(
+      `http://localhost:3131/api/household/members/${invitedMember.id}`,
+      {
+        method: 'DELETE',
+        headers: { cookie: ownerCookie, origin: 'http://localhost:3131' },
+      },
+    )
+    expect(ownerRemove.status).toBe(200)
+
+    const revokedRecipes = await app.request('http://localhost:3131/api/recipes', {
+      headers: { cookie: memberCookie },
+    })
+    expect(revokedRecipes.status).toBe(401)
+
+    const revokedHousehold = await app.request('http://localhost:3131/api/household', {
+      headers: { cookie: memberCookie },
+    })
+    expect(revokedHousehold.status).toBe(401)
   })
 
   it('reads, validates and persists household planning preferences', async () => {
