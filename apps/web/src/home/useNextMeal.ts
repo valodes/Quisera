@@ -1,5 +1,6 @@
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, shallowRef } from 'vue'
 import { addCivilDays, parisCivilDate, type PlanningRange } from '@quisera/shared'
+import { queryClient, queryKeys } from '@/lib/query'
 import { getDelivery, getPlanning, type DeliverySnapshot } from '@/planning/api'
 import { listRecipes } from '@/recipes/api'
 
@@ -79,7 +80,7 @@ function formatShortDate(date: string) {
 export function useNextMeal() {
   const loading = ref(true)
   const error = ref('')
-  const entries = ref<HomeMealEntry[]>([])
+  const entries = shallowRef<HomeMealEntry[]>([])
   const checkedIngredients = ref<Record<string, boolean>>({})
 
   const nextMeal = computed(() => entries.value[0] ?? null)
@@ -121,14 +122,24 @@ export function useNextMeal() {
           timeZone: 'Europe/Paris',
         }).format(new Date()),
       )
+      const toDate = addCivilDays(today, 14)
       const [planning, homeList] = await Promise.all([
-        getPlanning(today, addCivilDays(today, 14)),
-        listRecipes({
-          source: 'house',
-          page: 1,
-          pageSize: 100,
-          sort: 'title',
-        }).catch(() => ({ items: [] })),
+        queryClient.fetchQuery({
+          queryKey: queryKeys.planning(today, toDate),
+          queryFn: () => getPlanning(today, toDate),
+        }),
+        queryClient
+          .fetchQuery({
+            queryKey: queryKeys.houseRecipesAll,
+            queryFn: () =>
+              listRecipes({
+                source: 'house',
+                page: 1,
+                pageSize: 100,
+                sort: 'title',
+              }),
+          })
+          .catch(() => ({ items: [] })),
       ])
 
       const activeCycle =
@@ -139,7 +150,11 @@ export function useNextMeal() {
           ) ?? planning.deliveryCycles[0]
 
       const deliverySelections = activeCycle
-        ? await getDelivery(activeCycle.id)
+        ? await queryClient
+            .fetchQuery({
+              queryKey: queryKeys.delivery(activeCycle.id),
+              queryFn: () => getDelivery(activeCycle.id),
+            })
             .then((res) => res.selections)
             .catch(() => [])
         : []

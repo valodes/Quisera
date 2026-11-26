@@ -31,10 +31,21 @@ const { loading, error, nextMeal, upcomingMeals, formatMealDate, formatShortDate
           <ScoreBadge kind="eco" :grade="nextMeal.carbonScore" />
         </div>
         <div class="home-stage__actions">
-          <RouterLink class="home-stage__cta-primary" to="/planning">
-            <CalendarDays :size="18" aria-hidden="true" />
-            Ouvrir le planning
+          <RouterLink
+            class="home-stage__cta-primary"
+            :to="
+              nextMeal.meal.category === 'home' && nextMeal.meal.recipeId
+                ? { name: 'cooking', query: { recipe: nextMeal.meal.recipeId } }
+                : { name: 'cooking' }
+            "
+          >
+            <ChefHat :size="18" aria-hidden="true" />
+            Cuisiner maintenant
             <ArrowRight :size="17" aria-hidden="true" />
+          </RouterLink>
+          <RouterLink class="home-stage__cta-secondary" to="/planning">
+            <CalendarDays :size="17" aria-hidden="true" />
+            Planning
           </RouterLink>
           <RouterLink
             v-if="nextMeal.meal.category === 'home' && nextMeal.meal.recipeId"
@@ -42,9 +53,6 @@ const { loading, error, nextMeal, upcomingMeals, formatMealDate, formatShortDate
             :to="`/recettes/${nextMeal.meal.recipeId}`"
           >
             Fiche recette
-          </RouterLink>
-          <RouterLink v-else class="home-stage__cta-secondary" to="/recettes">
-            Bibliothèque
           </RouterLink>
         </div>
       </div>
@@ -123,6 +131,7 @@ const { loading, error, nextMeal, upcomingMeals, formatMealDate, formatShortDate
   display: grid;
   grid-template-rows: 1fr auto;
   gap: var(--q-space-4);
+  min-height: calc(100vh - 3rem);
   min-height: calc(100dvh - 3rem);
 }
 .home-stage__error {

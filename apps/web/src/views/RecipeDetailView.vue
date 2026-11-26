@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Clock3, Heart, Pencil, Star, Trash2 } from '@lucide/vue'
+import { ArrowLeft, ChefHat, Clock3, Heart, Pencil, Star, Trash2 } from '@lucide/vue'
 import type { RecipeDetail } from '@quisera/shared'
+import NutritionPanel from '@/components/recipes/NutritionPanel.vue'
 import Button from '@/components/ui/Button.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import { deleteRecipe, getRecipe, setFavorite } from '@/recipes/api'
@@ -84,6 +85,13 @@ onMounted(load)
           <h2>{{ recipe.title }}</h2>
         </div>
         <div class="recipe-detail__actions">
+          <RouterLink
+            class="recipe-create-link"
+            :to="{ name: 'cooking', query: { recipe: recipe.id } }"
+          >
+            <ChefHat :size="18" aria-hidden="true" />
+            Mode cuisine
+          </RouterLink>
           <IconButton
             :label="recipe.isFavorite ? 'Retirer des favoris' : 'Ajouter aux favoris'"
             :disabled="pending"
@@ -155,13 +163,16 @@ onMounted(load)
           <span v-if="metric.method"> Méthode : {{ metric.method }}.</span>
         </p>
       </div>
+      <NutritionPanel :servings="recipe.servings" :nutrition="recipe.nutrition" />
       <p v-if="error" class="recipe-state--error" role="alert">{{ error }}</p>
       <div class="recipe-detail__columns">
         <section>
           <h3>Ingrédients</h3>
           <ul v-if="recipe.ingredients.length">
-            <li v-for="(item, index) in recipe.ingredients" :key="index">
-              <strong v-if="item.quantity">{{ item.quantity }}</strong>
+            <li v-for="(item, index) in recipe.ingredients" :key="`${item.name}-${index}`">
+              <strong v-if="item.quantity"
+                >{{ item.quantity }}<span v-if="item.unit"> {{ item.unit }}</span></strong
+              >
               {{ item.name }}<span v-if="item.notes"> — {{ item.notes }}</span>
             </li>
           </ul>

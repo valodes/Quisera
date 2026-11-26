@@ -1,4 +1,4 @@
-import type { RecipeDetail, RecipeListResponse } from '@quisera/shared'
+import type { RecipeDetail, RecipeListResponse, RecipeNutrition } from '@quisera/shared'
 
 export type RecipeFilters = {
   q?: string
@@ -53,4 +53,69 @@ export function saveRecipe(id: string | undefined, payload: FormData | object) {
 
 export function deleteRecipe(id: string) {
   return request<void>(`/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export type CatalogSourceId = 'all' | 'jow' | 'marmiton' | '750g' | 'cuisineaz' | 'hervecuisine'
+
+export type ExternalCatalogItem = {
+  source: Exclude<CatalogSourceId, 'all'>
+  sourceLabel: string
+  title: string
+  url: string
+  imageUrl: string | null
+  description?: string | null
+}
+
+export type CatalogSourceStatus = {
+  source: Exclude<CatalogSourceId, 'all'>
+  label: string
+  ok: boolean
+  count: number
+}
+
+export type ImportedRecipeDraft = {
+  title: string
+  description: string | null
+  imageUrl: string | null
+  totalMinutes: number | null
+  servings: number | null
+  difficulty: string | null
+  category: string | null
+  tags: string[]
+  ingredients: Array<{
+    name: string
+    quantity: string | null
+    unit: string | null
+    notes: string | null
+  }>
+  steps: string[]
+  caloriesKcal: number | null
+  nutrition: RecipeNutrition | null
+  sourceUrl: string
+  sourceHost: string
+  strategy: 'site-adapter' | 'schema-org'
+}
+
+export function searchExternalCatalog(q: string, source: CatalogSourceId = 'all') {
+  const query = new URLSearchParams({ q, source })
+  return request<{
+    items: ExternalCatalogItem[]
+    sourceStatuses: CatalogSourceStatus[]
+  }>(`/external/search?${query}`)
+}
+
+export function previewRecipeUrl(url: string) {
+  return request<{ draft: ImportedRecipeDraft }>('/import-url', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url, save: false }),
+  })
+}
+
+export function importRecipeUrl(url: string) {
+  return request<RecipeDetail>('/import-url', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url, save: true }),
+  })
 }

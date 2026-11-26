@@ -38,7 +38,7 @@ test('creates, searches, opens, and favorites a house recipe', async ({ page }) 
   const card = page.getByRole('article').filter({ has: recipeLink })
   await card.getByRole('button', { name: 'Ajouter aux favoris', exact: true }).click()
   await expect(card.getByRole('button', { name: 'Retirer des favoris', exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'Favoris', exact: true }).click()
+  await page.getByRole('tab', { name: 'Favoris', exact: true }).click()
   await expect(recipeLink).toBeVisible()
 
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
@@ -67,7 +67,7 @@ test('recipe library fits desktop, tablet, and mobile widths', async ({ page }) 
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
       viewport.width,
     )
-    await expect(page.getByRole('button', { name: 'Favoris', exact: true })).toBeVisible()
+    await expect(page.getByRole('tab', { name: 'Favoris', exact: true })).toBeVisible()
     if (viewport.mobile) {
       await expect(page.locator('.recipe-filters summary')).toBeVisible()
       await expect(page.getByLabel('Catégorie')).toBeHidden()

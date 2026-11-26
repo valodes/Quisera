@@ -1,5 +1,7 @@
 export { default as Badge } from './Badge.vue'
 export { default as Button } from './Button.vue'
 export { default as IconButton } from './IconButton.vue'
+export { default as ModalDialog } from './ModalDialog.vue'
+export { default as PasswordInput } from './PasswordInput.vue'
 export { default as Surface } from './Surface.vue'
 export { default as TextInput } from './TextInput.vue'

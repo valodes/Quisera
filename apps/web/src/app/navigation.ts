@@ -62,6 +62,8 @@ export const navigationItems = [
   },
 ] satisfies readonly NavigationItem[]
 
+export const sidebarNavigationItems = navigationItems.filter((item) => item.name !== 'settings')
+
 export const mobileNavigationItems = navigationItems.filter((item) => item.mobilePrimary)
 
 export const settingsNavigationItem = navigationItems.find((item) => item.name === 'settings')!

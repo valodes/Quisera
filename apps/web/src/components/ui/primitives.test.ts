@@ -5,6 +5,7 @@ import Button from './Button.vue'
 import IconButton from './IconButton.vue'
 import Surface from './Surface.vue'
 import TextInput from './TextInput.vue'
+import RecipeCard from '../recipes/RecipeCard.vue'
 
 describe('Button', () => {
   it('keeps its label available and announces its loading state', () => {
@@ -70,5 +71,40 @@ describe('IconButton', () => {
 
     expect(wrapper.get('button').attributes('aria-label')).toBe('Fermer')
     expect(wrapper.get('button').attributes('disabled')).toBeDefined()
+  })
+})
+
+describe('RecipeCard', () => {
+  it('omits missing metadata instead of rendering N/D placeholders', () => {
+    const wrapper = mount(RecipeCard, {
+      props: {
+        title: 'Quiche Lorraine',
+        sourceLabel: 'Jow',
+      },
+    })
+
+    expect(wrapper.text()).toContain('Quiche Lorraine')
+    expect(wrapper.text()).toContain('Jow')
+    expect(wrapper.text()).not.toContain('N/D')
+    expect(wrapper.text()).not.toContain('Non disponible')
+    expect(wrapper.find('.q-recipe-card__time-pill').exists()).toBe(false)
+    expect(wrapper.find('.q-recipe-card__metrics').exists()).toBe(false)
+  })
+
+  it('renders time on photo and calories/scores when available', () => {
+    const wrapper = mount(RecipeCard, {
+      props: {
+        title: 'Poulet curry',
+        sourceLabel: 'Quitoque',
+        totalMinutes: 25,
+        caloriesKcal: 640,
+        nutriScore: 'A',
+        carbonScore: 'B',
+      },
+    })
+
+    expect(wrapper.get('.q-recipe-card__time-pill').text()).toContain('25 min')
+    expect(wrapper.get('.q-recipe-card__kcal').text()).toContain('640 kcal')
+    expect(wrapper.findAll('.score-badge')).toHaveLength(2)
   })
 })

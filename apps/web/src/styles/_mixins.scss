@@ -1,3 +1,10 @@
+// Shared responsive breakpoints aligned with Quisera tokens
+$bp-xs: 30rem;
+$bp-sm: 40rem;
+$bp-md: 48rem;
+$bp-lg: 64rem;
+$bp-xl: 72rem;
+
 @mixin focus-ring($color: var(--q-focus), $offset: 2px) {
   &:focus-visible {
     outline: 3px solid $color;
@@ -10,7 +17,27 @@
 }
 
 @mixin from-lg {
-  @media (min-width: 64rem) {
+  @media (min-width: $bp-lg) {
     @content;
   }
+}
+
+@mixin until($breakpoint) {
+  @media (max-width: $breakpoint) {
+    @content;
+  }
+}
+
+@mixin reduced-motion {
+  @media (prefers-reduced-motion: reduce) {
+    @content;
+  }
+}
+
+@mixin line-clamp($lines: 2) {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: $lines;
+  line-clamp: $lines;
 }

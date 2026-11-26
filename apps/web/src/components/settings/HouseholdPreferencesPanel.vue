@@ -7,6 +7,7 @@ import {
   type MealPeriod,
   type SlotPreferenceKey,
 } from '@quisera/shared'
+import { SwitchRoot, SwitchThumb } from 'reka-ui'
 import { onMounted, ref } from 'vue'
 import { getHouseholdPreferences, updateHouseholdPreferences } from '@/account/api'
 import Button from '@/components/ui/Button.vue'
@@ -366,20 +367,36 @@ onMounted(() => {
         </h3>
 
         <div class="prefs-toggles">
-          <label class="prefs-checkbox">
-            <input v-model="prefs.avoidConsecutiveSameProtein" type="checkbox" />
-            <span>Éviter la même protéine sur deux repas consécutifs</span>
-          </label>
+          <div class="prefs-switch-row">
+            <label for="pref-protein">Éviter la même protéine sur deux repas consécutifs</label>
+            <SwitchRoot
+              id="pref-protein"
+              v-model="prefs.avoidConsecutiveSameProtein"
+              class="q-switch"
+            >
+              <SwitchThumb class="q-switch__thumb" />
+            </SwitchRoot>
+          </div>
 
-          <label class="prefs-checkbox">
-            <input v-model="prefs.avoidConsecutiveSameStarch" type="checkbox" />
-            <span>Éviter le même féculent sur deux repas consécutifs</span>
-          </label>
+          <div class="prefs-switch-row">
+            <label for="pref-starch">Éviter le même féculent sur deux repas consécutifs</label>
+            <SwitchRoot
+              id="pref-starch"
+              v-model="prefs.avoidConsecutiveSameStarch"
+              class="q-switch"
+            >
+              <SwitchThumb class="q-switch__thumb" />
+            </SwitchRoot>
+          </div>
 
-          <label class="prefs-checkbox">
-            <input v-model="prefs.preserveManualMeals" type="checkbox" />
-            <span>Toujours préserver les repas placés manuellement lors de la répartition</span>
-          </label>
+          <div class="prefs-switch-row">
+            <label for="pref-manual">
+              Toujours préserver les repas placés manuellement lors de la répartition
+            </label>
+            <SwitchRoot id="pref-manual" v-model="prefs.preserveManualMeals" class="q-switch">
+              <SwitchThumb class="q-switch__thumb" />
+            </SwitchRoot>
+          </div>
         </div>
       </section>
 
@@ -700,23 +717,52 @@ onMounted(() => {
   gap: var(--q-space-2);
 }
 
-.prefs-checkbox {
+.prefs-switch-row {
   display: flex;
   align-items: center;
-  gap: var(--q-space-3);
+  justify-content: space-between;
+  gap: var(--q-space-4);
   min-height: var(--q-touch-target);
   padding: var(--q-space-2) var(--q-space-3);
   border-radius: var(--q-radius-control);
   background: var(--q-sage);
   font-size: var(--q-type-body-small);
   font-weight: 600;
-  cursor: pointer;
 
-  input {
-    width: 1.15rem;
-    height: 1.15rem;
-    flex: none;
-    accent-color: var(--q-forest);
+  label {
+    cursor: pointer;
+  }
+}
+
+.q-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  width: 48px;
+  height: 28px;
+  padding: 3px;
+  border: 2px solid var(--q-forest);
+  border-radius: var(--q-radius-card);
+  background: var(--q-peach);
+  transition: background-color var(--q-duration-fast) var(--q-ease-standard);
+
+  &[data-state='checked'] {
+    background: var(--q-forest);
+  }
+
+  &__thumb {
+    display: block;
+    width: 18px;
+    height: 18px;
+    border-radius: var(--q-radius-control);
+    background: var(--q-forest);
+    transition: transform var(--q-duration-fast) var(--q-ease-standard);
+
+    [data-state='checked'] > & {
+      transform: translateX(20px);
+      background: var(--q-shoot);
+    }
   }
 }
 </style>

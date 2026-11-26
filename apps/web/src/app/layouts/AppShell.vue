@@ -1,23 +1,43 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onErrorCaptured, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { LogOut, Menu } from '@lucide/vue'
 import MobileSettingsMenu from '@/components/layout/MobileSettingsMenu.vue'
 import NavigationLink from '@/components/layout/NavigationLink.vue'
+import Button from '@/components/ui/Button.vue'
 import ToastRegion from '@/components/ui/ToastRegion.vue'
-import { navigationItems, mobileNavigationItems } from '@/app/navigation'
+import { mobileNavigationItems, sidebarNavigationItems } from '@/app/navigation'
 import { authClient } from '@/auth/client'
+import { queryClient } from '@/lib/query'
 
 const SIDEBAR_STORAGE_KEY = 'quisera:sidebar-collapsed'
 const route = useRoute()
 const router = useRouter()
 const session = authClient.useSession()
+const boundaryError = ref<string | null>(null)
 const sidebarCollapsed = ref(
   typeof window !== 'undefined' && window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === 'true',
 )
 const pageTitle = computed(() =>
   typeof route.meta.title === 'string' ? route.meta.title : 'Quisera',
 )
+
+onErrorCaptured((error) => {
+  boundaryError.value =
+    error instanceof Error ? error.message : 'Une erreur inattendue est survenue.'
+  return false
+})
+
+watch(
+  () => route.fullPath,
+  () => {
+    boundaryError.value = null
+  },
+)
+
+function retryRoute() {
+  boundaryError.value = null
+}
 
 function toggleSidebar() {
   sidebarCollapsed.value = !sidebarCollapsed.value
@@ -39,6 +59,7 @@ watch(
 
 async function signOut() {
   await authClient.signOut()
+  queryClient.clear()
   await router.replace({ name: 'connexion' })
 }
 </script>
@@ -81,7 +102,7 @@ async function signOut() {
 
       <nav class="sidebar-navigation" aria-label="Navigation principale">
         <NavigationLink
-          v-for="item in navigationItems"
+          v-for="item in sidebarNavigationItems"
           :key="item.name"
           :item="item"
           mode="sidebar"
@@ -135,7 +156,18 @@ async function signOut() {
         aria-live="polite"
       >
         <div class="app-main__content">
-          <RouterView />
+          <section v-if="boundaryError" class="section-placeholder" role="alert">
+            <p>Erreur d’affichage : {{ boundaryError }}</p>
+            <Button type="button" @click="retryRoute">Réessayer</Button>
+          </section>
+          <RouterView v-else v-slot="{ Component }">
+            <KeepAlive
+              :include="['PlanningView', 'PlanificationView', 'RecipeLibraryView']"
+              :max="3"
+            >
+              <component :is="Component" />
+            </KeepAlive>
+          </RouterView>
         </div>
       </main>
     </div>

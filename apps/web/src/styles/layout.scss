@@ -5,6 +5,27 @@
   min-height: 100dvh;
   color: var(--q-text);
   background: var(--q-canvas);
+
+  &:has(.cooking-stage--flex),
+  &:has(.cooking-stage--cover) {
+    .app-header,
+    .mobile-navigation,
+    .app-sidebar {
+      display: none;
+    }
+
+    .app-column {
+      grid-template-rows: 1fr;
+    }
+
+    .app-main {
+      padding: 0;
+    }
+
+    .app-main__content {
+      max-width: none;
+    }
+  }
 }
 
 .session-loading {
@@ -764,14 +785,16 @@
 
     &:has(.planning),
     &:has(.planification),
-    &:has(.home-stage) {
+    &:has(.home-stage),
+    &:has(.cooking-stage) {
       padding: var(--q-space-4) var(--q-space-6) var(--q-space-6);
     }
 
     &__content {
       &:has(.planning),
       &:has(.planification),
-      &:has(.home-stage) {
+      &:has(.home-stage),
+      &:has(.cooking-stage) {
         max-width: none;
       }
     }

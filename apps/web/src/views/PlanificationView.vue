@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+defineOptions({ name: 'PlanificationView' })
+
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef, watch } from 'vue'
 import {
   ArrowRight,
   CalendarClock,
@@ -22,10 +24,13 @@ import {
   Wallet,
   X,
 } from '@lucide/vue'
+import { ProgressIndicator, ProgressRoot } from 'reka-ui'
+import NutritionPanel from '@/components/recipes/NutritionPanel.vue'
+import RecipeCard from '@/components/recipes/RecipeCard.vue'
 import Button from '@/components/ui/Button.vue'
 import ScoreBadge from '@/components/ui/ScoreBadge.vue'
 import { useToast } from '@/components/ui/toast'
-import { formatRecipeInstructions } from '@/recipes/instructions'
+import { parseStructuredStep } from '@/recipes/instructions'
 import {
   addBoxItem,
   applyBoxCoupon,
@@ -63,7 +68,7 @@ const timelineSteps = [
   { id: 'recap', step: 4, label: 'Récapitulatif', icon: ClipboardCheck },
 ] as const
 
-const weeks = ref<UpcomingBoxWeek[]>([])
+const weeks = shallowRef<UpcomingBoxWeek[]>([])
 const selectedOrderId = ref('')
 const activeSection = ref<PlanificationTab>('recipes')
 
@@ -71,22 +76,25 @@ const weeksLoading = ref(true)
 const catalogLoading = ref(false)
 const mutatingKey = ref<string | null>(null)
 const cartPulse = ref<'catch' | 'remove' | null>(null)
-const cartRef = ref<HTMLElement | null>(null)
+const cartRef = useTemplateRef<HTMLElement>('cartRef')
 
-const catalogItems = ref<CatalogProduct[]>([])
-const filterGroups = ref<DynamicFilterGroup[]>([])
-const seasonalCategories = ref<string[]>([])
+const catalogItems = shallowRef<CatalogProduct[]>([])
+const filterGroups = shallowRef<DynamicFilterGroup[]>([])
+const seasonalCategories = shallowRef<string[]>([])
 
 const searchQuery = ref('')
 const selectedFilters = ref<Record<string, string[]>>({})
 const selectedCategory = ref<string | null>(null)
 const filtersOpen = ref(false)
-const activeProductModal = ref<CatalogProduct | null>(null)
+const activeProductModal = shallowRef<CatalogProduct | null>(null)
+const activeProductSteps = computed(() =>
+  (activeProductModal.value?.steps ?? []).map((step, idx) => parseStructuredStep(step, idx + 1)),
+)
 
 // Recap tab state: delivery slots, map coords, servings, coupons
 const timeSlotsLoading = ref(false)
-const availableDeliveryDates = ref<string[]>([])
-const availableTimeSlots = ref<DeliveryTimeSlotOption[]>([])
+const availableDeliveryDates = shallowRef<string[]>([])
+const availableTimeSlots = shallowRef<DeliveryTimeSlotOption[]>([])
 const selectedDeliveryDate = ref('')
 const selectedTimeSlotId = ref<number | null>(null)
 const savingDelivery = ref(false)
@@ -1110,71 +1118,49 @@ onBeforeUnmount(() => {
           Aucun produit ne correspond aux filtres sélectionnés.
         </div>
         <div v-else class="planif-grid">
-          <article
+          <RecipeCard
             v-for="product in filteredProducts"
             :key="product.id"
+            v-memo="[
+              product.id,
+              cartItemByProductId.get(product.id)?.quantity ?? 0,
+              mutatingKey === product.id,
+              currentWeek?.onBreak,
+            ]"
             :data-product-id="product.id"
-            class="planif-card"
-            :class="{ 'is-in-box': cartItemByProductId.has(product.id) }"
+            :title="product.title"
+            source-label="Quitoque"
+            :image-url="product.imageUrl"
+            :description="product.description"
+            :total-minutes="product.totalMinutes"
+            :calories-kcal="product.nutrition?.caloriesKcal ?? null"
+            :nutri-score="product.nutriScore"
+            :carbon-score="product.carbonScore"
+            :active="cartItemByProductId.has(product.id)"
+            @open="openProductModal(product)"
           >
-            <div
-              class="planif-card__clickable"
-              role="button"
-              tabindex="0"
-              :aria-label="`Voir les détails de ${product.title}`"
-              @click="openProductModal(product)"
-              @keydown.enter.prevent="openProductModal(product)"
-              @keydown.space.prevent="openProductModal(product)"
+            <template
+              v-if="
+                product.highlights.length ||
+                product.additionalCostCents > 0 ||
+                (product.section !== 'recipes' && product.priceCents)
+              "
+              #overlay
             >
-              <div class="planif-card__media">
-                <img
-                  v-if="product.imageUrl"
-                  :src="product.imageUrl"
-                  :alt="`Photographie de ${product.title}`"
-                  loading="lazy"
-                />
-                <UtensilsCrossed v-else :size="36" aria-hidden="true" />
-                <span v-if="product.highlights.length" class="planif-card__highlight">{{
-                  product.highlights[0]
-                }}</span>
-                <span v-if="product.additionalCostCents > 0" class="planif-card__extra"
-                  >+{{ formatCents(product.additionalCostCents) }}</span
-                >
-                <span
-                  v-else-if="product.section !== 'recipes' && product.priceCents"
-                  class="planif-card__extra"
-                  >{{ formatCents(product.priceCents) }}</span
-                >
-              </div>
+              <span v-if="product.highlights.length" class="planif-card__highlight">{{
+                product.highlights[0]
+              }}</span>
+              <span v-if="product.additionalCostCents > 0" class="planif-card__extra"
+                >+{{ formatCents(product.additionalCostCents) }}</span
+              >
+              <span
+                v-else-if="product.section !== 'recipes' && product.priceCents"
+                class="planif-card__extra"
+                >{{ formatCents(product.priceCents) }}</span
+              >
+            </template>
 
-              <div class="planif-card__body">
-                <h3 class="planif-card__title">{{ product.title }}</h3>
-                <p v-if="product.description" class="planif-card__desc">
-                  {{ product.description }}
-                </p>
-
-                <div class="planif-card__metrics">
-                  <span v-if="product.totalMinutes" class="planif-card__time">
-                    <Clock3 :size="13" aria-hidden="true" />
-                    {{ product.totalMinutes }} min
-                  </span>
-                  <ScoreBadge
-                    v-if="product.nutriScore"
-                    kind="nutri"
-                    :grade="product.nutriScore"
-                    compact
-                  />
-                  <ScoreBadge
-                    v-if="product.carbonScore"
-                    kind="eco"
-                    :grade="product.carbonScore"
-                    compact
-                  />
-                </div>
-              </div>
-            </div>
-
-            <footer class="planif-card__foot">
+            <template #footer>
               <template v-if="cartItemByProductId.get(product.id)">
                 <div class="planif-stepper">
                   <button
@@ -1207,8 +1193,8 @@ onBeforeUnmount(() => {
                 <Plus :size="16" aria-hidden="true" />
                 Ajouter à la box
               </Button>
-            </footer>
-          </article>
+            </template>
+          </RecipeCard>
         </div>
       </div>
 
@@ -1240,12 +1226,16 @@ onBeforeUnmount(() => {
             <strong>Recettes choisies</strong>
             <span>{{ sectionCount('recipes') }} / {{ currentWeek.recipeTargetCount }}</span>
           </div>
-          <div class="planif-cart__progress-track">
-            <div
+          <ProgressRoot
+            :model-value="recipeProgressPercent"
+            :max="100"
+            class="planif-cart__progress-track"
+          >
+            <ProgressIndicator
               class="planif-cart__progress-fill"
-              :style="{ width: `${recipeProgressPercent}%` }"
+              :style="{ transform: `scaleX(${recipeProgressPercent / 100})` }"
             />
-          </div>
+          </ProgressRoot>
         </div>
 
         <div class="planif-cart__groups">
@@ -1422,6 +1412,11 @@ onBeforeUnmount(() => {
               {{ activeProductModal.description }}
             </p>
 
+            <NutritionPanel
+              :servings="activeProductModal.servings ?? currentWeek?.servings ?? null"
+              :nutrition="activeProductModal.nutrition"
+            />
+
             <section v-if="activeProductModal.allergens.length" class="planif-modal__section-block">
               <h3>Allergènes</h3>
               <div class="planif-modal__badges">
@@ -1453,11 +1448,22 @@ onBeforeUnmount(() => {
               </ul>
             </section>
 
-            <section v-if="activeProductModal.steps.length" class="planif-modal__section-block">
+            <section v-if="activeProductSteps.length" class="planif-modal__section-block">
               <h3>Préparation</h3>
               <ol class="planif-modal__steps">
-                <li v-for="(step, idx) in activeProductModal.steps" :key="idx">
-                  {{ formatRecipeInstructions(step, idx + 1) }}
+                <li
+                  v-for="(step, idx) in activeProductSteps"
+                  :key="`pstep-${idx}`"
+                  class="planif-modal__step"
+                >
+                  <strong v-if="step.title" class="planif-modal__step-title">
+                    {{ step.title }}
+                  </strong>
+                  <div class="planif-modal__step-lines">
+                    <p v-for="(line, lineIdx) in step.lines" :key="`pline-${idx}-${lineIdx}`">
+                      {{ line }}
+                    </p>
+                  </div>
                 </li>
               </ol>
             </section>
@@ -2036,9 +2042,11 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 .planif-cart__progress-fill {
+  width: 100%;
   height: 100%;
+  transform-origin: left center;
   background: var(--q-leaf);
-  transition: width 240ms var(--q-ease-standard);
+  transition: transform 240ms var(--q-ease-standard);
 }
 .planif-cart__groups {
   flex: 1;
@@ -2759,13 +2767,26 @@ onBeforeUnmount(() => {
 }
 .planif-modal__steps {
   margin: 0;
-  padding-left: 1.25rem;
+  padding-left: 1.35rem;
   display: grid;
-  gap: var(--q-space-3);
+  gap: var(--q-space-4);
   line-height: var(--q-line-body);
 }
-.planif-modal__steps li {
-  white-space: pre-line;
+.planif-modal__step-title {
+  display: block;
+  margin-bottom: var(--q-space-2);
+  font-family: var(--q-font-display);
+  font-size: var(--q-type-body);
+  font-weight: 800;
+  color: var(--q-forest);
+}
+.planif-modal__step-lines {
+  display: grid;
+  gap: var(--q-space-2);
+
+  p {
+    margin: 0;
+  }
 }
 .planif-modal__footer {
   display: flex;

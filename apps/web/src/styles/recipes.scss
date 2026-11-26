@@ -11,7 +11,7 @@
 .recipe-library {
   &__intro {
     display: flex;
-    align-items: end;
+    align-items: center;
     justify-content: space-between;
     gap: var(--q-space-6);
 
@@ -19,14 +19,21 @@
       max-width: 65ch;
       margin: 0;
     }
+
+    .recipe-library__lead {
+      margin-bottom: var(--q-space-2);
+      font-family: var(--q-font-display);
+      font-size: var(--q-type-h3);
+      font-weight: 750;
+      line-height: var(--q-line-heading);
+    }
   }
 
-  &__lead {
-    margin-bottom: var(--q-space-2) !important;
-    font-family: var(--q-font-display);
-    font-size: var(--q-type-h3);
-    font-weight: 750;
-    line-height: var(--q-line-heading);
+  &__intro-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--q-space-2);
   }
 
   &__toolbar {
@@ -37,6 +44,7 @@
 }
 
 .recipe-create-link,
+.recipe-import-link,
 .recipe-icon-link,
 .recipe-back {
   display: inline-flex;
@@ -50,9 +58,22 @@
   text-decoration: none;
 }
 
+.recipe-import-link {
+  flex: 0 0 auto;
+  padding-inline: var(--q-space-4);
+  border: 1px solid var(--q-leaf);
+  background: var(--q-peach);
+  color: var(--q-forest);
+
+  &:hover {
+    background: var(--q-shoot);
+  }
+}
+
 .recipe-create-link {
   flex: 0 0 auto;
   padding-inline: var(--q-space-4);
+  border: 1px solid transparent;
   background: var(--q-forest);
   color: var(--q-peach);
 
@@ -111,6 +132,7 @@
 }
 
 .recipe-photo-picker {
+  position: relative;
   display: flex;
   @include touch-target;
   flex-wrap: wrap;
@@ -119,8 +141,14 @@
 
   &__input {
     position: absolute;
+    top: 0;
+    left: 0;
     width: 1px;
     height: 1px;
+    min-height: 0;
+    padding: 0;
+    margin: 0;
+    border: 0;
     overflow: hidden;
     clip: rect(0, 0, 0, 0);
     clip-path: inset(50%);
@@ -402,12 +430,9 @@
   }
 
   &__description {
-    display: -webkit-box;
-    overflow: hidden;
+    @include line-clamp(2);
     margin: 0;
     color: var(--q-forest);
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
   }
 
   &__metadata,
@@ -657,7 +682,7 @@
       font-weight: 400;
     }
 
-    input,
+    input:not(.recipe-photo-picker__input),
     textarea,
     select {
       width: 100%;

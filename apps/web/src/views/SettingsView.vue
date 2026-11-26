@@ -18,6 +18,7 @@ import { TabsContent, TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
 import HouseholdPreferencesPanel from '@/components/settings/HouseholdPreferencesPanel.vue'
 import Button from '@/components/ui/Button.vue'
 import { authClient } from '@/auth/client'
+import { queryClient, queryKeys } from '@/lib/query'
 import { applyTheme, getStoredTheme, themeOptions, type ThemeId } from '@/styles/themes'
 import {
   changePassword,
@@ -116,10 +117,13 @@ function formatDate(iso: string) {
 }
 
 async function loadProfile() {
-  profileLoading.value = true
+  profileLoading.value = !profile.value
   profileError.value = ''
   try {
-    const data = await getProfile()
+    const data = await queryClient.fetchQuery({
+      queryKey: queryKeys.profile,
+      queryFn: () => getProfile(),
+    })
     profile.value = data
     formName.value = data.name
     formUsername.value = data.username ?? ''
@@ -133,10 +137,13 @@ async function loadProfile() {
 }
 
 async function loadHousehold() {
-  householdLoading.value = true
+  householdLoading.value = !household.value
   householdError.value = ''
   try {
-    const data = await getHousehold()
+    const data = await queryClient.fetchQuery({
+      queryKey: queryKeys.household,
+      queryFn: () => getHousehold(),
+    })
     household.value = data
     householdNameInput.value = data.name
   } catch (cause) {

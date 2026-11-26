@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+defineOptions({ name: 'PlanningView' })
+
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import {
   addCivilDays,
@@ -9,6 +11,7 @@ import {
   monthGridDates,
   parisCivilDate,
   type PlanningRange,
+  type RecipeNutrition,
 } from '@quisera/shared'
 import {
   ChevronLeft,
@@ -19,11 +22,13 @@ import {
   SlidersHorizontal,
   X,
 } from '@lucide/vue'
+import NutritionPanel from '@/components/recipes/NutritionPanel.vue'
 import Button from '@/components/ui/Button.vue'
 import ScoreBadge from '@/components/ui/ScoreBadge.vue'
 import { useToast } from '@/components/ui/toast'
+import { queryClient, queryKeys } from '@/lib/query'
 import { listRecipes } from '@/recipes/api'
-import { formatRecipeInstructions } from '@/recipes/instructions'
+import { parseStructuredStep } from '@/recipes/instructions'
 import {
   clearPlanningSlot,
   type DeliverySnapshot,
@@ -48,8 +53,10 @@ type Selection = {
   thumbnailUrl: string | null
   description: string | null
   totalMinutes: number | null
+  servings: number | null
   nutriScore: string | null
   carbonScore: string | null
+  nutrition: RecipeNutrition | null
   ingredients: Array<{
     name: string
     quantity: string | null
@@ -76,9 +83,9 @@ const selectedDate = computed(() =>
 const view = computed<ViewMode>(() =>
   route.query['view'] === 'month' || route.query['view'] === 'day' ? route.query['view'] : 'week',
 )
-const range = ref<PlanningRange | null>(null)
-const selections = ref<Selection[]>([])
-const homeRecipes = ref<HomeRecipeOption[]>([])
+const range = shallowRef<PlanningRange | null>(null)
+const selections = shallowRef<Selection[]>([])
+const homeRecipes = shallowRef<HomeRecipeOption[]>([])
 const cycleId = ref('')
 const loading = ref(false)
 const busy = ref(false)
@@ -235,8 +242,10 @@ async function loadSelections(id: string) {
       thumbnailUrl: item.photoThumbnailUrl,
       description: item.description,
       totalMinutes: item.totalMinutes ?? null,
+      servings: item.servings ?? null,
       nutriScore: item.nutriScore ?? null,
       carbonScore: item.carbonScore ?? null,
+      nutrition: parseSelectionNutrition(item.nutritionJson),
       ingredients: parseIngredients(item.ingredientsJson),
       steps: parseSteps(item.stepsJson),
     }))
@@ -300,6 +309,24 @@ function mealMetrics(meal: SlotMeal | null | undefined) {
     carbonScore: home?.carbonScore ?? null,
   }
 }
+const activeMealSelection = computed(() =>
+  activeMealModal.value ? selectionFor(activeMealModal.value.meal) : undefined,
+)
+const activeMealSteps = computed(() =>
+  (activeMealSelection.value?.steps ?? []).map((step, index) =>
+    parseStructuredStep(step, index + 1),
+  ),
+)
+
+function parseSelectionNutrition(raw: string | null | undefined): RecipeNutrition | null {
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as RecipeNutrition
+    return parsed && typeof parsed === 'object' ? parsed : null
+  } catch {
+    return null
+  }
+}
 function hasLunchAbove(date: string, period: 'lunch' | 'dinner') {
   return (
     period === 'dinner' &&
@@ -308,11 +335,15 @@ function hasLunchAbove(date: string, period: 'lunch' | 'dinner') {
 }
 async function loadHomeRecipes() {
   try {
-    const result = await listRecipes({
-      source: 'house',
-      page: 1,
-      pageSize: 100,
-      sort: 'title',
+    const result = await queryClient.fetchQuery({
+      queryKey: queryKeys.houseRecipesAll,
+      queryFn: () =>
+        listRecipes({
+          source: 'house',
+          page: 1,
+          pageSize: 100,
+          sort: 'title',
+        }),
     })
     homeRecipes.value = result.items.map((item) => {
       const nutri = item.metrics.find((m) => m.key === 'nutriScore')
@@ -1292,20 +1323,21 @@ function onMealPointerDown(
               {{ activeMealModal.meal.notes }}
             </p>
             <template v-if="activeMealModal.meal.category === 'quitoque'">
-              <p
-                v-if="selectionFor(activeMealModal.meal)?.description"
-                class="planning-modal__description"
-              >
-                {{ selectionFor(activeMealModal.meal)?.description }}
+              <p v-if="activeMealSelection?.description" class="planning-modal__description">
+                {{ activeMealSelection.description }}
               </p>
+              <NutritionPanel
+                :servings="activeMealSelection?.servings ?? null"
+                :nutrition="activeMealSelection?.nutrition ?? null"
+              />
               <section class="planning-modal__section">
                 <h3>Ingrédients</h3>
                 <ul
-                  v-if="selectionFor(activeMealModal.meal)?.ingredients.length"
+                  v-if="activeMealSelection?.ingredients.length"
                   class="planning-modal__ingredients"
                 >
                   <li
-                    v-for="(ingredient, index) in selectionFor(activeMealModal.meal)?.ingredients"
+                    v-for="(ingredient, index) in activeMealSelection.ingredients"
                     :key="`${index}-${ingredient.name}`"
                   >
                     <strong>{{ ingredient.name }}</strong>
@@ -1319,15 +1351,20 @@ function onMealPointerDown(
               </section>
               <section class="planning-modal__section">
                 <h3>Préparation</h3>
-                <ol
-                  v-if="selectionFor(activeMealModal.meal)?.steps.length"
-                  class="planning-modal__steps"
-                >
+                <ol v-if="activeMealSteps.length" class="planning-modal__steps">
                   <li
-                    v-for="(step, index) in selectionFor(activeMealModal.meal)?.steps"
-                    :key="index"
+                    v-for="(step, index) in activeMealSteps"
+                    :key="`step-${index}`"
+                    class="planning-modal__step"
                   >
-                    {{ formatRecipeInstructions(step, index + 1) }}
+                    <strong v-if="step.title" class="planning-modal__step-title">
+                      {{ step.title }}
+                    </strong>
+                    <div class="planning-modal__step-lines">
+                      <p v-for="(line, lineIdx) in step.lines" :key="`line-${index}-${lineIdx}`">
+                        {{ line }}
+                      </p>
+                    </div>
                   </li>
                 </ol>
                 <p v-else>Étapes non disponibles.</p>
@@ -2311,13 +2348,26 @@ function onMealPointerDown(
 }
 .planning-modal__steps {
   margin: 0;
-  padding-left: 1.25rem;
+  padding-left: 1.35rem;
   display: grid;
-  gap: var(--q-space-3);
+  gap: var(--q-space-4);
   line-height: var(--q-line-body);
 }
-.planning-modal__steps li {
-  white-space: pre-line;
+.planning-modal__step-title {
+  display: block;
+  margin-bottom: var(--q-space-2);
+  font-family: var(--q-font-display);
+  font-size: var(--q-type-body);
+  font-weight: 800;
+  color: var(--q-forest);
+}
+.planning-modal__step-lines {
+  display: grid;
+  gap: var(--q-space-2);
+
+  p {
+    margin: 0;
+  }
 }
 .planning-modal__link-wrap {
   padding-top: var(--q-space-2);
