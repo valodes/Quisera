@@ -5,10 +5,19 @@
     "dist"
   ],
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./dates": {
+      "types": "./dist/dates.d.ts",
+      "import": "./dist/dates.js"
+    },
+    "./email": {
+      "types": "./dist/email.d.ts",
+      "import": "./dist/email.js"
     },
     "./recipes": {
       "types": "./dist/recipes.d.ts",

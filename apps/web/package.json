@@ -8,7 +8,7 @@
     "build": "vite build",
     "pretypecheck": "pnpm --filter @quisera/shared run build",
     "typecheck": "vue-tsc --noEmit",
-    "test:unit": "vitest run",
+    "test:unit": "vitest run --root ../.. apps/web/src",
     "test:e2e": "playwright test"
   },
   "dependencies": {
@@ -18,7 +18,9 @@
     "@quisera/shared": "workspace:*",
     "@tailwindcss/vite": "^4.3.5",
     "@tanstack/vue-query": "^5.108.4",
+    "@vueuse/core": "^15.1.0",
     "better-auth": "1.7.27",
+    "parse-duration": "^2.1.11",
     "reka-ui": "^2.11.0",
     "tailwindcss": "^4.3.5",
     "vue": "^3.5.46",
@@ -29,7 +31,6 @@
     "@vitejs/plugin-vue": "^6.0.11",
     "@vue/test-utils": "2.6.0",
     "happy-dom": "21.0.4",
-    "sass-embedded": "^1.108.2",
     "vite": "^8.3.8",
     "vue-tsc": "^3.3.14"
   },
