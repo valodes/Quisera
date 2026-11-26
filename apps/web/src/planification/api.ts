@@ -1,3 +1,5 @@
+import type { RecipeNutrition } from '@quisera/shared'
+
 export type PlanificationSection = 'recipes' | 'ready-meals' | 'market'
 
 export type BoxCartItem = {
@@ -104,8 +106,10 @@ export type CatalogProduct = {
   description: string | null
   imageUrl: string | null
   totalMinutes: number | null
+  servings: number | null
   nutriScore: string | null
   carbonScore: string | null
+  nutrition: RecipeNutrition | null
   priceCents: number | null
   additionalCostCents: number
   section: PlanificationSection

@@ -16,6 +16,7 @@ export const recipeWriteSchema = z
     title: z.string().trim().min(1).max(200),
     description: z.string().trim().max(5000).nullable().default(null),
     totalMinutes: z.number().int().min(1).max(1440).nullable().default(null),
+    servings: z.number().int().min(1).max(30).nullable().optional(),
     difficulty: z.enum(['easy', 'medium', 'hard']).nullable().default(null),
     category: z.string().trim().min(1).max(80).nullable().default(null),
     tags: z.array(z.string().trim().min(1).max(60)).max(24).default([]),
@@ -27,6 +28,16 @@ export const recipeWriteSchema = z
 export type RecipeWriteInput = z.infer<typeof recipeWriteSchema>
 
 export type RecipeSource = 'house' | 'quitoque'
+
+export type RecipeNutrition = {
+  caloriesKcal: number | null
+  proteinGrams: number | null
+  carbsGrams: number | null
+  fatGrams: number | null
+  fiberGrams: number | null
+  sugarGrams: number | null
+  saltGrams: number | null
+}
 
 export type RecipeMetric = {
   key: string
@@ -58,10 +69,12 @@ export type RecipeSummary = {
   imageUrl: string | null
   thumbnailUrl: string | null
   totalMinutes: number | null
+  servings: number | null
   difficulty: string | null
   category: string | null
   tags: string[]
   metrics: RecipeMetric[]
+  nutrition: RecipeNutrition | null
   isFavorite: boolean
   createdAt: string
   updatedAt: string

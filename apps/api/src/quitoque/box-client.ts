@@ -1,4 +1,6 @@
+import type { RecipeNutrition } from '@quisera/shared'
 import { z } from 'zod'
+import { parseQuitoqueNutrition, parseQuitoqueServings } from './nutrition.js'
 import { QuitoqueApiError } from './client.js'
 
 const apiOrigin = 'https://app.quitoque.fr'
@@ -112,8 +114,10 @@ export type CatalogProduct = {
   description: string | null
   imageUrl: string | null
   totalMinutes: number | null
+  servings: number | null
   nutriScore: string | null
   carbonScore: string | null
+  nutrition: RecipeNutrition | null
   priceCents: number | null
   additionalCostCents: number
   section: PlanificationSection
@@ -842,8 +846,10 @@ export function createQuitoqueBoxClient({
               : null,
         imageUrl: toThumbnailUrl(p['image']),
         totalMinutes: parseMinutes(p['total_time']),
+        servings: parseQuitoqueServings(p),
         nutriScore,
         carbonScore,
+        nutrition: parseQuitoqueNutrition(p),
         priceCents: typeof p['price'] === 'number' ? p['price'] : null,
         additionalCostCents: typeof p['additional_cost'] === 'number' ? p['additional_cost'] : 0,
         section,

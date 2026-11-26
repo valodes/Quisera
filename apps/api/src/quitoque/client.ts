@@ -1,4 +1,6 @@
+import type { RecipeNutrition } from '@quisera/shared'
 import { z } from 'zod'
+import { parseQuitoqueNutrition, parseQuitoqueServings } from './nutrition.js'
 
 const apiOrigin = 'https://app.quitoque.fr'
 const apiBase = `${apiOrigin}/api/v2`
@@ -142,6 +144,7 @@ export type ImportedRecipe = {
   imageUrl: string | null
   thumbnailUrl: string | null
   totalMinutes: number | null
+  servings: number | null
   difficulty: null
   category: string | null
   tags: string[]
@@ -154,6 +157,7 @@ export type ImportedRecipe = {
   steps: string[]
   nutriScore: string | null
   carbonScore: string | null
+  nutrition: RecipeNutrition | null
 }
 
 export type QuitoqueDelivery = {
@@ -342,6 +346,7 @@ function parseProduct(
     imageUrl,
     thumbnailUrl,
     totalMinutes: parseMinutes(product['total_time']),
+    servings: parseQuitoqueServings(product),
     difficulty: null,
     category: parseLabelList(product['categories'], 'catégories')[0] ?? null,
     tags: parseLabelList(product['tags'], 'tags'),
@@ -349,6 +354,7 @@ function parseProduct(
     steps: parseSteps(product['preparation_steps']),
     nutriScore: parseScoreGrade(product['nutri_score']),
     carbonScore: parseScoreGrade(product['carbon_score']),
+    nutrition: parseQuitoqueNutrition(product),
   }
 }
 
@@ -793,6 +799,7 @@ export function createQuitoqueClient({
           imageUrl: recipe?.imageUrl ?? toImageUrl(fallbackImage),
           thumbnailUrl: recipe?.thumbnailUrl ?? null,
           totalMinutes: recipe?.totalMinutes ?? null,
+          servings: recipe?.servings ?? null,
           difficulty: null,
           category: recipe?.category ?? null,
           tags: recipe?.tags ?? [],
@@ -800,6 +807,7 @@ export function createQuitoqueClient({
           steps: recipe?.steps ?? [],
           nutriScore: recipe?.nutriScore ?? null,
           carbonScore: recipe?.carbonScore ?? null,
+          nutrition: recipe?.nutrition ?? null,
         })
       }
     }
