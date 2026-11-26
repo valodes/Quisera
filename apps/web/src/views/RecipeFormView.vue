@@ -1,57 +1,120 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ArrowDown, ArrowLeft, ArrowUp, Plus, Trash2 } from '@lucide/vue'
-import { recipeWriteSchema, type RecipeDetail, type RecipeWriteInput } from '@quisera/shared'
+import {
+  recipeWriteSchema,
+  type RecipeDetail,
+  type RecipeWriteInput,
+} from '@quisera/shared/recipes'
 import Button from '@/components/ui/Button.vue'
 import TextInput from '@/components/ui/TextInput.vue'
+import { queryClient, queryKeys } from '@/lib/query'
 import { getRecipe, saveRecipe } from '@/recipes/api'
+import '@/styles/recipes.css'
+
+type KeyedIngredient = RecipeWriteInput['ingredients'][number] & { _uid: string }
+type KeyedStep = RecipeWriteInput['steps'][number] & { _uid: string }
+
+let localUidSeq = 1
+function nextUid(): string {
+  localUidSeq += 1
+  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `uid-${localUidSeq}`
+}
 
 const route = useRoute()
 const router = useRouter()
-const editing = typeof route.params['id'] === 'string'
-const loading = ref(editing)
+const recipeId = computed(() =>
+  typeof route.params['id'] === 'string' && route.params['id'].length > 0
+    ? route.params['id']
+    : null,
+)
+const editing = computed(() => recipeId.value !== null)
+const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
 const fieldErrors = ref<string[]>([])
 const photo = ref<File | null>(null)
-const draft = reactive<RecipeWriteInput>({
+
+const draft = reactive<{
+  title: string
+  description: string | null
+  totalMinutes: number | null
+  difficulty: RecipeWriteInput['difficulty']
+  category: string | null
+  tags: string[]
+  ingredients: KeyedIngredient[]
+  steps: KeyedStep[]
+}>({
   title: '',
   description: null,
   totalMinutes: null,
   difficulty: null,
   category: null,
   tags: [],
-  ingredients: [{ name: '', quantity: null, unit: null, notes: null }],
-  steps: [{ instructions: '' }],
+  ingredients: [{ _uid: nextUid(), name: '', quantity: null, unit: null, notes: null }],
+  steps: [{ _uid: nextUid(), instructions: '' }],
 })
 
-onMounted(async () => {
-  if (!editing) return
-  try {
-    const recipe: RecipeDetail = await getRecipe(String(route.params['id']))
-    if (recipe.source !== 'house') throw new Error('Les recettes Quitoque ne sont pas modifiables.')
-    Object.assign(draft, {
-      title: recipe.title,
-      description: recipe.description,
-      totalMinutes: recipe.totalMinutes,
-      difficulty: recipe.difficulty as RecipeWriteInput['difficulty'],
-      category: recipe.category,
-      tags: recipe.tags,
-      ingredients: recipe.ingredients.map(({ name, quantity, unit, notes }) => ({
-        name,
-        quantity,
-        unit,
-        notes,
-      })),
-      steps: recipe.steps.map(({ instructions }) => ({ instructions })),
-    })
-  } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : 'Impossible de charger la recette.'
-  } finally {
-    loading.value = false
-  }
-})
+function resetDraft() {
+  error.value = ''
+  fieldErrors.value = []
+  photo.value = null
+  Object.assign(draft, {
+    title: '',
+    description: null,
+    totalMinutes: null,
+    difficulty: null,
+    category: null,
+    tags: [],
+    ingredients: [{ _uid: nextUid(), name: '', quantity: null, unit: null, notes: null }],
+    steps: [{ _uid: nextUid(), instructions: '' }],
+  })
+}
+
+watch(
+  recipeId,
+  async (id) => {
+    resetDraft()
+    if (!id) {
+      loading.value = false
+      return
+    }
+    loading.value = true
+    try {
+      const recipe: RecipeDetail = await getRecipe(id)
+      if (recipe.source !== 'house') {
+        throw new Error('Les recettes Quitoque ne sont pas modifiables.')
+      }
+      Object.assign(draft, {
+        title: recipe.title,
+        description: recipe.description,
+        totalMinutes: recipe.totalMinutes,
+        difficulty: recipe.difficulty as RecipeWriteInput['difficulty'],
+        category: recipe.category,
+        tags: recipe.tags,
+        ingredients: recipe.ingredients.map(({ name, quantity, unit, notes }) => ({
+          _uid: nextUid(),
+          name,
+          quantity,
+          unit,
+          notes,
+        })),
+        steps: recipe.steps.map(({ instructions }) => ({
+          _uid: nextUid(),
+          instructions,
+        })),
+      })
+    } catch (cause) {
+      error.value = cause instanceof Error ? cause.message : 'Impossible de charger la recette.'
+    } finally {
+      loading.value = false
+    }
+  },
+  { immediate: true },
+)
 
 function move<T>(items: T[], index: number, offset: -1 | 1) {
   const target = index + offset
@@ -63,10 +126,19 @@ async function submit() {
   error.value = ''
   fieldErrors.value = []
   const parsed = recipeWriteSchema.safeParse({
-    ...draft,
+    title: draft.title,
     description: draft.description?.trim() || null,
-    category: draft.category?.trim() || null,
     totalMinutes: draft.totalMinutes || null,
+    difficulty: draft.difficulty,
+    category: draft.category?.trim() || null,
+    tags: draft.tags,
+    ingredients: draft.ingredients.map(({ name, quantity, unit, notes }) => ({
+      name,
+      quantity,
+      unit,
+      notes,
+    })),
+    steps: draft.steps.map(({ instructions }) => ({ instructions })),
   })
   if (!parsed.success) {
     fieldErrors.value = [...new Set(parsed.error.issues.map((issue) => String(issue.path[0])))]
@@ -82,7 +154,8 @@ async function submit() {
       form.set('image', photo.value)
       payload = form
     }
-    const saved = await saveRecipe(editing ? String(route.params['id']) : undefined, payload)
+    const saved = await saveRecipe(recipeId.value ?? undefined, payload)
+    await queryClient.invalidateQueries({ queryKey: queryKeys.recipesAll })
     await router.replace(`/recettes/${saved.id}`)
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'Enregistrement impossible.'
@@ -149,14 +222,14 @@ async function submit() {
       </div>
       <div class="recipe-form__field">
         <span id="recipe-photo-label" class="recipe-form__field-label"
-          >Photo <span>(facultative, JPEG, PNG ou WebP, 8 Mo maximum)</span></span
+          >Photo <span>(facultative, JPEG, PNG, WebP, AVIF ou HEIC, 8 Mo maximum)</span></span
         >
         <div class="recipe-photo-picker">
           <input
             id="recipe-photo"
             class="recipe-photo-picker__input"
             type="file"
-            accept="image/jpeg,image/png,image/webp"
+            accept="image/jpeg,image/png,image/webp,image/avif,image/heic,image/heif"
             aria-labelledby="recipe-photo-label"
             @change="photo = ($event.target as HTMLInputElement).files?.[0] ?? null"
           />
@@ -170,7 +243,7 @@ async function submit() {
         <legend>Ingrédients</legend>
         <div
           v-for="(ingredient, index) in draft.ingredients"
-          :key="index"
+          :key="ingredient._uid"
           class="recipe-form__item"
         >
           <TextInput v-model="ingredient.name" :label="`Ingrédient ${index + 1}`" /><TextInput
@@ -215,6 +288,7 @@ async function submit() {
           variant="secondary"
           @click.prevent="
             draft.ingredients.push({
+              _uid: nextUid(),
               name: '',
               quantity: null,
               unit: null,
@@ -229,13 +303,13 @@ async function submit() {
         <legend>Étapes de préparation</legend>
         <div
           v-for="(step, index) in draft.steps"
-          :key="index"
+          :key="step._uid"
           class="recipe-form__item recipe-form__item--step"
         >
           <div class="recipe-form__field">
-            <label :for="`recipe-step-${index}`">Étape {{ index + 1 }}</label
+            <label :for="`recipe-step-${step._uid}`">Étape {{ index + 1 }}</label
             ><textarea
-              :id="`recipe-step-${index}`"
+              :id="`recipe-step-${step._uid}`"
               v-model="step.instructions"
               rows="3"
               maxlength="4000"
@@ -266,7 +340,10 @@ async function submit() {
             </Button>
           </div>
         </div>
-        <Button variant="secondary" @click.prevent="draft.steps.push({ instructions: '' })">
+        <Button
+          variant="secondary"
+          @click.prevent="draft.steps.push({ _uid: nextUid(), instructions: '' })"
+        >
           <Plus :size="17" aria-hidden="true" /> Ajouter une étape
         </Button>
       </fieldset>

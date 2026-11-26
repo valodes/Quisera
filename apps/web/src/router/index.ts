@@ -136,7 +136,12 @@ const router = createRouter({
   ],
 })
 
-function getCachedSession() {
+const liveSession = authClient.useSession()
+
+async function getCachedSession() {
+  if (!liveSession.value.isPending) {
+    return { data: liveSession.value.data }
+  }
   return queryClient.fetchQuery({
     queryKey: queryKeys.session,
     queryFn: () => authClient.getSession(),

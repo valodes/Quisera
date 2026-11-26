@@ -1,23 +1,50 @@
 <script setup lang="ts">
-import { computed, onErrorCaptured, ref, watch } from 'vue'
+import { useStorage } from '@vueuse/core'
+import { computed, defineAsyncComponent, onErrorCaptured, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { LogOut, Menu } from '@lucide/vue'
-import MobileSettingsMenu from '@/components/layout/MobileSettingsMenu.vue'
 import NavigationLink from '@/components/layout/NavigationLink.vue'
 import Button from '@/components/ui/Button.vue'
-import ToastRegion from '@/components/ui/ToastRegion.vue'
 import { mobileNavigationItems, sidebarNavigationItems } from '@/app/navigation'
 import { authClient } from '@/auth/client'
+import { useCookingSession } from '@/cooking/useCookingSession'
+import { useCookingTimers } from '@/cooking/useCookingTimers'
+import { useFoldablePosture } from '@/cooking/useFoldablePosture'
 import { queryClient } from '@/lib/query'
+
+const MobileSettingsMenu = defineAsyncComponent(
+  () => import('@/components/layout/MobileSettingsMenu.vue'),
+)
+const ToastRegion = defineAsyncComponent(() => import('@/components/ui/ToastRegion.vue'))
+const CookingTimerDock = defineAsyncComponent(
+  () => import('@/components/cooking/CookingTimerDock.vue'),
+)
 
 const SIDEBAR_STORAGE_KEY = 'quisera:sidebar-collapsed'
 const route = useRoute()
 const router = useRouter()
 const session = authClient.useSession()
 const boundaryError = ref<string | null>(null)
-const sidebarCollapsed = ref(
-  typeof window !== 'undefined' && window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === 'true',
+const sidebarCollapsed = useStorage(SIDEBAR_STORAGE_KEY, false)
+
+const { timers: activeTimers, togglePause, addMinute, dismissTimer } = useCookingTimers()
+const { session: cookingSession } = useCookingSession()
+const { isFlexMode, isCoverScreen } = useFoldablePosture(() =>
+  route.name === 'cooking' && typeof route.query['fold'] === 'string' ? route.query['fold'] : null,
 )
+const dockReturnLink = computed(() => {
+  if (route.name === 'cooking' || !cookingSession.value) return null
+  const s = cookingSession.value
+  const stepLabel =
+    s.phase === 'steps' && s.recipe.steps.length > 0
+      ? `Ét. ${s.currentStep + 1}/${s.recipe.steps.length}`
+      : null
+  return {
+    to: { name: 'cooking', query: s.recipe.routeQuery },
+    title: s.recipe.title,
+    stepLabel,
+  }
+})
 const pageTitle = computed(() =>
   typeof route.meta.title === 'string' ? route.meta.title : 'Quisera',
 )
@@ -41,8 +68,6 @@ function retryRoute() {
 
 function toggleSidebar() {
   sidebarCollapsed.value = !sidebarCollapsed.value
-  if (typeof window !== 'undefined')
-    window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(sidebarCollapsed.value))
 }
 
 watch(
@@ -180,6 +205,16 @@ async function signOut() {
         mode="bottom"
       />
     </nav>
+    <CookingTimerDock
+      v-if="activeTimers.length"
+      :timers="activeTimers"
+      :flex-mode="route.name === 'cooking' && isFlexMode && cookingSession?.phase === 'steps'"
+      :cover-mode="route.name === 'cooking' && isCoverScreen"
+      :return-link="dockReturnLink"
+      @toggle-pause="togglePause"
+      @add-minute="addMinute"
+      @dismiss="dismissTimer"
+    />
     <ToastRegion />
   </div>
 </template>

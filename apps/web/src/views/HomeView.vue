@@ -22,13 +22,17 @@ const { loading, error, nextMeal, upcomingMeals, formatMealDate, formatShortDate
         <p v-if="nextMeal.description" class="home-stage__desc">
           {{ nextMeal.description }}
         </p>
-        <div class="home-stage__metrics" aria-label="Informations recette">
-          <span class="home-stage__metric">
+        <div
+          v-if="nextMeal.totalMinutes || nextMeal.nutriScore || nextMeal.carbonScore"
+          class="home-stage__metrics"
+          aria-label="Informations recette"
+        >
+          <span v-if="nextMeal.totalMinutes" class="home-stage__metric">
             <Clock3 :size="15" aria-hidden="true" />
-            {{ nextMeal.totalMinutes ? `${nextMeal.totalMinutes} min` : 'Durée n/d' }}
+            {{ nextMeal.totalMinutes }} min
           </span>
-          <ScoreBadge kind="nutri" :grade="nextMeal.nutriScore" />
-          <ScoreBadge kind="eco" :grade="nextMeal.carbonScore" />
+          <ScoreBadge v-if="nextMeal.nutriScore" kind="nutri" :grade="nextMeal.nutriScore" />
+          <ScoreBadge v-if="nextMeal.carbonScore" kind="eco" :grade="nextMeal.carbonScore" />
         </div>
         <div class="home-stage__actions">
           <RouterLink
@@ -36,7 +40,14 @@ const { loading, error, nextMeal, upcomingMeals, formatMealDate, formatShortDate
             :to="
               nextMeal.meal.category === 'home' && nextMeal.meal.recipeId
                 ? { name: 'cooking', query: { recipe: nextMeal.meal.recipeId } }
-                : { name: 'cooking' }
+                : nextMeal.meal.category === 'quitoque' &&
+                    nextMeal.cycleId &&
+                    nextMeal.meal.selectionId
+                  ? {
+                      name: 'cooking',
+                      query: { cycle: nextMeal.cycleId, selection: nextMeal.meal.selectionId },
+                    }
+                  : { name: 'cooking' }
             "
           >
             <ChefHat :size="18" aria-hidden="true" />
@@ -62,6 +73,8 @@ const { loading, error, nextMeal, upcomingMeals, formatMealDate, formatShortDate
             v-if="nextMeal.meal.imageUrl || nextMeal.meal.thumbnailUrl"
             :src="nextMeal.meal.imageUrl || nextMeal.meal.thumbnailUrl || ''"
             :alt="`Photographie de ${nextMeal.meal.title}`"
+            fetchpriority="high"
+            decoding="async"
           />
           <UtensilsCrossed v-else :size="48" aria-hidden="true" />
         </div>
@@ -125,7 +138,7 @@ const { loading, error, nextMeal, upcomingMeals, formatMealDate, formatShortDate
   </div>
 </template>
 
-<style scoped lang="scss">
+<style scoped>
 .home-stage {
   flex: 1;
   display: grid;
@@ -134,6 +147,7 @@ const { loading, error, nextMeal, upcomingMeals, formatMealDate, formatShortDate
   min-height: calc(100vh - 3rem);
   min-height: calc(100dvh - 3rem);
 }
+
 .home-stage__error {
   margin: 0;
   padding: var(--q-space-3) var(--q-space-4);
@@ -143,6 +157,7 @@ const { loading, error, nextMeal, upcomingMeals, formatMealDate, formatShortDate
   outline: 2px solid var(--q-tomato);
   font-weight: 600;
 }
+
 .home-stage__hero {
   display: grid;
   grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
@@ -157,6 +172,7 @@ const { loading, error, nextMeal, upcomingMeals, formatMealDate, formatShortDate
     opacity 420ms var(--q-ease-standard),
     transform 480ms var(--q-ease-standard);
 }
+
 @starting-style {
   .home-stage__hero {
     opacity: 0;
@@ -170,6 +186,7 @@ const { loading, error, nextMeal, upcomingMeals, formatMealDate, formatShortDate
   gap: var(--q-space-4);
   min-width: 0;
 }
+
 .home-stage__slot-pill {
   display: inline-flex;
   align-items: center;
@@ -183,6 +200,7 @@ const { loading, error, nextMeal, upcomingMeals, formatMealDate, formatShortDate
   font-weight: 800;
   text-transform: capitalize;
 }
+
 .home-stage__title {
   margin: 0;
   font-family: var(--q-font-display);
@@ -192,17 +210,20 @@ const { loading, error, nextMeal, upcomingMeals, formatMealDate, formatShortDate
   letter-spacing: -0.03em;
   text-wrap: balance;
 }
+
 .home-stage__desc {
   margin: 0;
   max-width: 56ch;
   font-size: var(--q-type-body-large);
   line-height: 1.5;
 }
+
 .home-stage__metrics {
   display: flex;
   flex-wrap: wrap;
   gap: var(--q-space-2);
 }
+
 .home-stage__metric {
   display: inline-flex;
   align-items: center;
@@ -215,12 +236,14 @@ const { loading, error, nextMeal, upcomingMeals, formatMealDate, formatShortDate
   font-size: var(--q-type-label);
   font-variant-numeric: tabular-nums;
 }
+
 .home-stage__actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--q-space-3);
   margin-top: var(--q-space-2);
 }
+
 .home-stage__cta-primary,
 .home-stage__cta-secondary {
   display: inline-flex;
@@ -237,30 +260,36 @@ const { loading, error, nextMeal, upcomingMeals, formatMealDate, formatShortDate
     transform 180ms var(--q-ease-standard),
     background-color var(--q-duration-fast) var(--q-ease-standard);
 }
+
 .home-stage__cta-primary {
   background: var(--q-coral);
   color: var(--q-forest);
 }
+
 .home-stage__cta-primary:hover {
   background: var(--q-shoot);
   transform: translateY(-2px);
 }
+
 .home-stage__cta-secondary {
   background: transparent;
   color: var(--q-peach);
   border: 2px solid var(--q-peach);
 }
+
 .home-stage__cta-secondary:hover {
   background: var(--q-shoot);
   color: var(--q-forest);
   border-color: var(--q-shoot);
 }
+
 .home-stage__cta-primary:focus-visible,
 .home-stage__cta-secondary:focus-visible,
 .home-stage__upcoming-card:focus-visible {
   outline: 3px solid var(--q-shoot);
   outline-offset: 2px;
 }
+
 .home-stage__visual {
   display: flex;
   flex-direction: column;
@@ -271,11 +300,13 @@ const { loading, error, nextMeal, upcomingMeals, formatMealDate, formatShortDate
   color: var(--q-forest);
   transition: transform 320ms var(--q-ease-standard);
 }
+
 .home-stage__visual:hover {
   transform: translateY(-4px);
 }
+
 .home-stage__photo-frame {
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 4/3;
   width: 100%;
   border-radius: var(--q-radius-control);
   background: var(--q-sage);
@@ -284,12 +315,14 @@ const { loading, error, nextMeal, upcomingMeals, formatMealDate, formatShortDate
   justify-content: center;
   overflow: hidden;
 }
+
 .home-stage__photo-frame img {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
+
 .home-stage__visual-foot {
   display: flex;
   align-items: center;
@@ -298,18 +331,21 @@ const { loading, error, nextMeal, upcomingMeals, formatMealDate, formatShortDate
   font-size: var(--q-type-label);
   font-weight: 700;
 }
+
 .home-stage__source-chip {
   padding: 0.25rem 0.6rem;
   border-radius: var(--q-radius-control);
   background: var(--q-shoot);
   color: var(--q-forest);
 }
+
 .home-stage__upcoming {
   display: grid;
   grid-template-columns: auto repeat(3, minmax(0, 1fr));
   gap: var(--q-space-3);
   align-items: stretch;
 }
+
 .home-stage__upcoming-label {
   display: flex;
   align-items: center;
@@ -322,6 +358,7 @@ const { loading, error, nextMeal, upcomingMeals, formatMealDate, formatShortDate
   font-size: var(--q-type-label);
   white-space: nowrap;
 }
+
 .home-stage__upcoming-card {
   display: grid;
   grid-template-columns: 76px minmax(0, 1fr);
@@ -337,10 +374,12 @@ const { loading, error, nextMeal, upcomingMeals, formatMealDate, formatShortDate
     transform 160ms var(--q-ease-standard),
     background-color var(--q-duration-fast) var(--q-ease-standard);
 }
+
 .home-stage__upcoming-card:hover {
   background: var(--q-shoot);
   transform: translateY(-2px);
 }
+
 .home-stage__upcoming-thumb {
   width: 76px;
   height: 60px;
@@ -351,23 +390,27 @@ const { loading, error, nextMeal, upcomingMeals, formatMealDate, formatShortDate
   justify-content: center;
   overflow: hidden;
 }
+
 .home-stage__upcoming-thumb img {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
+
 .home-stage__upcoming-meta {
   display: grid;
   gap: 0.2rem;
   min-width: 0;
 }
+
 .home-stage__upcoming-meta span {
   font-size: var(--q-type-metadata);
   font-weight: 700;
   color: var(--q-leaf);
   text-transform: capitalize;
 }
+
 .home-stage__upcoming-meta strong {
   font-family: var(--q-font-display);
   font-size: var(--q-type-label);
@@ -378,6 +421,7 @@ const { loading, error, nextMeal, upcomingMeals, formatMealDate, formatShortDate
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
 }
+
 @media (max-width: 64rem) {
   .home-stage {
     min-height: 0;

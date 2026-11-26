@@ -1,7 +1,7 @@
 <script setup lang="ts">
 defineOptions({ name: 'RecipeImportView' })
 
-import { ArrowLeft, Check, Download, ExternalLink, Eye, Globe, Link2, Search } from '@lucide/vue'
+import { ArrowLeft, Check, Download, ExternalLink, Globe, Link2, Search } from '@lucide/vue'
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
 import { ref, shallowRef } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
@@ -12,6 +12,7 @@ import ModalDialog from '@/components/ui/ModalDialog.vue'
 import TextInput from '@/components/ui/TextInput.vue'
 import { useToast } from '@/components/ui/toast'
 import { queryClient, queryKeys } from '@/lib/query'
+import '@/styles/recipes.css'
 import {
   importRecipeUrl,
   previewRecipeUrl,
@@ -276,33 +277,33 @@ async function importFromCatalog(item: ExternalCatalogItem) {
             :source-label="item.sourceLabel"
             :image-url="item.imageUrl"
             :description="item.description ?? null"
+            :total-minutes="item.totalMinutes ?? null"
+            :calories-kcal="item.caloriesKcal ?? null"
             @open="openCatalogPreview(item)"
           >
+            <template #overlay>
+              <a
+                class="catalog-ext-link"
+                :href="item.url"
+                target="_blank"
+                rel="noopener noreferrer"
+                :aria-label="`Ouvrir ${item.title} sur ${item.sourceLabel}`"
+              >
+                <ExternalLink :size="16" aria-hidden="true" />
+              </a>
+            </template>
             <template #footer>
-              <button type="button" class="catalog-preview-btn" @click="openCatalogPreview(item)">
-                <Eye :size="15" aria-hidden="true" />
-                Aperçu
-              </button>
-              <div class="catalog-card-actions">
-                <Button
-                  type="button"
-                  :loading="importingUrl === item.url"
-                  :disabled="importingUrl !== null && importingUrl !== item.url"
-                  @click="importFromCatalog(item)"
-                >
-                  <Download :size="15" aria-hidden="true" />
-                  Importer
-                </Button>
-                <a
-                  class="catalog-ext-link"
-                  :href="item.url"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  :aria-label="`Ouvrir ${item.title} sur ${item.sourceLabel}`"
-                >
-                  <ExternalLink :size="15" aria-hidden="true" />
-                </a>
-              </div>
+              <Button
+                type="button"
+                variant="secondary"
+                class="catalog-import-btn"
+                :loading="importingUrl === item.url"
+                :disabled="importingUrl !== null && importingUrl !== item.url"
+                @click="importFromCatalog(item)"
+              >
+                <Download :size="16" aria-hidden="true" />
+                Importer la recette
+              </Button>
             </template>
           </RecipeCard>
         </div>
@@ -393,72 +394,63 @@ async function importFromCatalog(item: ExternalCatalogItem) {
   </div>
 </template>
 
-<style scoped lang="scss">
+<style scoped>
 .recipe-import {
   display: grid;
   gap: var(--q-space-6);
   min-width: 0;
-
-  &__top {
-    display: grid;
-    gap: var(--q-space-3);
-  }
-
-  &__heading {
-    h2 {
-      margin: 0;
-      font-family: var(--q-font-display);
-      font-size: var(--q-type-h2);
-      font-weight: 800;
-      line-height: var(--q-line-heading);
-    }
-
-    p {
-      margin: var(--q-space-2) 0 0;
-      max-width: 68ch;
-      color: var(--q-forest);
-    }
-  }
+}
+.recipe-import__top {
+  display: grid;
+  gap: var(--q-space-3);
+}
+.recipe-import__heading h2 {
+  margin: 0;
+  font-family: var(--q-font-display);
+  font-size: var(--q-type-h2);
+  font-weight: 800;
+  line-height: var(--q-line-heading);
+}
+.recipe-import__heading p {
+  margin: var(--q-space-2) 0 0;
+  max-width: 68ch;
+  color: var(--q-forest);
 }
 
 .import-tabs {
   display: grid;
   gap: var(--q-space-6);
-
-  &__list {
-    display: inline-flex;
-    flex-wrap: wrap;
-    width: fit-content;
-    gap: var(--q-space-1);
-    padding: 4px;
-    border: 1px solid var(--q-leaf);
-    border-radius: var(--q-radius-card);
-    background: var(--q-peach);
-  }
-
-  &__trigger {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
-    min-height: var(--q-touch-target);
-    padding: 0 var(--q-space-4);
-    border: 0;
-    border-radius: var(--q-radius-control);
-    background: transparent;
-    color: var(--q-forest);
-    font-family: var(--q-font-display);
-    font-size: var(--q-type-label);
-    font-weight: 700;
-
-    &:hover:not(.is-active) {
-      background: var(--q-shoot);
-    }
-
-    &.is-active {
-      background: var(--q-forest);
-      color: var(--q-peach);
-    }
-  }
+}
+.import-tabs__list {
+  display: inline-flex;
+  flex-wrap: wrap;
+  width: fit-content;
+  gap: var(--q-space-1);
+  padding: 4px;
+  border: 1px solid var(--q-leaf);
+  border-radius: var(--q-radius-card);
+  background: var(--q-peach);
+}
+.import-tabs__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: var(--q-touch-target);
+  padding: 0 var(--q-space-4);
+  border: 0;
+  border-radius: var(--q-radius-control);
+  background: transparent;
+  color: var(--q-forest);
+  font-family: var(--q-font-display);
+  font-size: var(--q-type-label);
+  font-weight: 700;
+}
+.import-tabs__trigger:hover:not(.is-active) {
+  background: var(--q-shoot);
+}
+.import-tabs__trigger.is-active {
+  background: var(--q-forest);
+  color: var(--q-peach);
 }
 
 .import-panel {
@@ -474,11 +466,10 @@ async function importFromCatalog(item: ExternalCatalogItem) {
   border: 1px solid var(--q-leaf);
   border-radius: var(--q-radius-card);
   background: var(--q-peach);
-
-  &__actions {
-    display: flex;
-    justify-content: flex-start;
-  }
+}
+.import-url-form__actions {
+  display: flex;
+  justify-content: flex-start;
 }
 
 .import-preview-card {
@@ -489,37 +480,33 @@ async function importFromCatalog(item: ExternalCatalogItem) {
   border-radius: var(--q-radius-card);
   background: var(--q-peach);
   color: var(--q-forest);
-
-  &__head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: var(--q-space-4);
-
-    h3 {
-      margin: var(--q-space-1) 0 0;
-      font-family: var(--q-font-display);
-      font-size: var(--q-type-h3);
-      font-weight: 800;
-    }
-  }
-
-  &__source {
-    margin: 0;
-    font-size: var(--q-type-metadata);
-    font-weight: 700;
-    color: var(--q-leaf);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-
-  &__actions {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--q-space-3);
-  }
+}
+.import-preview-card__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--q-space-4);
+}
+.import-preview-card__head h3 {
+  margin: var(--q-space-1) 0 0;
+  font-family: var(--q-font-display);
+  font-size: var(--q-type-h3);
+  font-weight: 800;
+}
+.import-preview-card__source {
+  margin: 0;
+  font-size: var(--q-type-metadata);
+  font-weight: 700;
+  color: var(--q-leaf);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.import-preview-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--q-space-3);
 }
 
 .import-external-link {
@@ -535,10 +522,9 @@ async function importFromCatalog(item: ExternalCatalogItem) {
   text-decoration: underline;
   text-decoration-color: var(--q-terracotta);
   text-underline-offset: 0.2em;
-
-  &:hover {
-    color: var(--q-leaf);
-  }
+}
+.import-external-link:hover {
+  color: var(--q-leaf);
 }
 
 .catalog-search-bar {
@@ -559,20 +545,18 @@ async function importFromCatalog(item: ExternalCatalogItem) {
   border: 1px solid var(--q-leaf);
   border-radius: var(--q-radius-control);
   background: var(--q-peach);
-
-  &:focus-within {
-    outline: 3px solid var(--q-focus);
-    outline-offset: 2px;
-  }
-
-  input {
-    width: 100%;
-    min-height: var(--q-touch-target);
-    border: 0;
-    outline: 0;
-    background: transparent;
-    color: var(--q-forest);
-  }
+}
+.catalog-search-input:focus-within {
+  outline: 3px solid var(--q-focus);
+  outline-offset: 2px;
+}
+.catalog-search-input input {
+  width: 100%;
+  min-height: var(--q-touch-target);
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--q-forest);
 }
 
 .catalog-sources {
@@ -591,12 +575,11 @@ async function importFromCatalog(item: ExternalCatalogItem) {
   font-family: var(--q-font-display);
   font-size: var(--q-type-label);
   font-weight: 700;
-
-  &.is-active {
-    background: var(--q-forest);
-    border-color: var(--q-forest);
-    color: var(--q-peach);
-  }
+}
+.catalog-source-pill.is-active {
+  background: var(--q-forest);
+  border-color: var(--q-forest);
+  color: var(--q-peach);
 }
 
 .catalog-statuses {
@@ -612,11 +595,10 @@ async function importFromCatalog(item: ExternalCatalogItem) {
   color: var(--q-forest);
   font-size: var(--q-type-metadata);
   font-weight: 700;
-
-  &.is-failed {
-    background: var(--q-peach);
-    border: 1px solid var(--q-tomato);
-  }
+}
+.catalog-status-chip.is-failed {
+  background: var(--q-peach);
+  border: 1px solid var(--q-tomato);
 }
 
 .import-error {
@@ -640,30 +622,15 @@ async function importFromCatalog(item: ExternalCatalogItem) {
 
 .catalog-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 17.5rem), 1fr));
-  gap: var(--q-space-6);
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
+  gap: var(--q-space-4);
 }
 
-.catalog-preview-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  min-height: var(--q-touch-target);
-  padding: 0 var(--q-space-3);
-  border: 1px solid var(--q-leaf);
-  border-radius: var(--q-radius-control);
-  background: var(--q-peach);
-  color: var(--q-forest);
-  font-family: var(--q-font-display);
-  font-size: var(--q-type-body-small);
-  font-weight: 700;
-
-  &:hover {
-    background: var(--q-shoot);
-  }
+.catalog-import-btn {
+  width: 100%;
+  flex: 1;
 }
 
-.catalog-card-actions,
 .import-modal-actions {
   display: flex;
   flex-wrap: wrap;
@@ -676,11 +643,12 @@ async function importFromCatalog(item: ExternalCatalogItem) {
   place-items: center;
   width: var(--q-touch-target);
   height: var(--q-touch-target);
+  border: 1px solid var(--q-leaf);
   border-radius: var(--q-radius-control);
+  background: var(--q-peach);
   color: var(--q-forest);
-
-  &:hover {
-    background: var(--q-shoot);
-  }
+}
+.catalog-ext-link:hover {
+  background: var(--q-shoot);
 }
 </style>

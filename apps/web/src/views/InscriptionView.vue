@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { isValidEmail } from '@quisera/shared'
+import { isValidEmail } from '@quisera/shared/email'
 import { computed, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { authClient, safeReturnTo } from '@/auth/client'

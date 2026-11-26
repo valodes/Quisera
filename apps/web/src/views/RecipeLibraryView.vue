@@ -4,8 +4,9 @@ defineOptions({ name: 'RecipeLibraryView' })
 import { Download, Heart, Plus, RefreshCw, Search } from '@lucide/vue'
 import type { RecipeSummary } from '@quisera/shared'
 import { keepPreviousData, useQuery } from '@tanstack/vue-query'
+import { refDebounced, useMediaQuery } from '@vueuse/core'
 import { TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import RecipeCard from '@/components/recipes/RecipeCard.vue'
 import Button from '@/components/ui/Button.vue'
@@ -13,13 +14,15 @@ import IconButton from '@/components/ui/IconButton.vue'
 import { useToast } from '@/components/ui/toast'
 import { queryClient, queryKeys } from '@/lib/query'
 import { listRecipes, setFavorite, type RecipeFilters } from '@/recipes/api'
+import { recipeMetricValue, resolveRecipeSourceLabel } from '@/recipes/presentation'
+import '@/styles/recipes.css'
 
 const toast = useToast()
 
 const source = ref<'house' | 'favorites'>('house')
-const isCompact = ref(window.matchMedia('(max-width: 48rem)').matches)
+const isCompact = useMediaQuery('(max-width: 48rem)')
 const query = ref('')
-const debouncedQuery = ref('')
+const debouncedQuery = refDebounced(query, 220)
 const category = ref('')
 const sort = ref<RecipeFilters['sort']>('recent')
 const page = ref(1)
@@ -29,18 +32,7 @@ const tabs = [
   { id: 'favorites', label: 'Favoris' },
 ] as const
 
-let debounce: ReturnType<typeof setTimeout> | undefined
-watch(query, (value) => {
-  page.value = 1
-  clearTimeout(debounce)
-  debounce = setTimeout(
-    () => {
-      debouncedQuery.value = value
-    },
-    value ? 220 : 0,
-  )
-})
-watch([category, source, sort], () => {
+watch([query, category, source, sort], () => {
   page.value = 1
 })
 
@@ -72,10 +64,6 @@ const error = computed(() =>
       : '',
 )
 
-function metricValue(recipe: RecipeSummary, key: string): string | null {
-  return recipe.metrics.find((metric) => metric.key === key)?.value ?? null
-}
-
 async function load() {
   await queryClient.invalidateQueries({ queryKey: queryKeys.recipesAll })
   await refetch()
@@ -93,16 +81,6 @@ async function toggleFavorite(recipe: RecipeSummary) {
     pendingFavoriteId.value = null
   }
 }
-
-const compactMedia = window.matchMedia('(max-width: 48rem)')
-function updateCompactState(event: MediaQueryListEvent) {
-  isCompact.value = event.matches
-}
-onMounted(() => compactMedia.addEventListener('change', updateCompactState))
-onUnmounted(() => {
-  clearTimeout(debounce)
-  compactMedia.removeEventListener('change', updateCompactState)
-})
 </script>
 
 <template>
@@ -192,14 +170,15 @@ onUnmounted(() => {
         <RecipeCard
           v-for="item in result.items"
           :key="item.id"
+          v-memo="[item.id, item.updatedAt, item.isFavorite, pendingFavoriteId === item.id]"
           :title="item.title"
-          :source-label="item.source === 'house' ? 'Maison' : 'Quitoque'"
+          :source-label="resolveRecipeSourceLabel(item)"
           :image-url="item.thumbnailUrl ?? item.imageUrl"
           :description="item.description"
           :total-minutes="item.totalMinutes"
           :calories-kcal="item.nutrition?.caloriesKcal ?? null"
-          :nutri-score="metricValue(item, 'nutriScore')"
-          :carbon-score="metricValue(item, 'carbonScore')"
+          :nutri-score="recipeMetricValue(item.metrics, 'nutriScore')"
+          :carbon-score="recipeMetricValue(item.metrics, 'carbonScore')"
           :to="`/recettes/${item.id}`"
         >
           <template #overlay>
@@ -234,12 +213,11 @@ onUnmounted(() => {
   </div>
 </template>
 
-<style scoped lang="scss">
+<style scoped>
 .recipe-card__favorite-btn {
   background: var(--q-peach);
-
-  &:hover {
-    background: var(--q-shoot);
-  }
+}
+.recipe-card__favorite-btn:hover {
+  background: var(--q-shoot);
 }
 </style>

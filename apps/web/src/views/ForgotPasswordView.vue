@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { CheckCircle2 } from '@lucide/vue'
-import { isValidEmail } from '@quisera/shared'
+import { isValidEmail } from '@quisera/shared/email'
 import { ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { authClient } from '@/auth/client'

@@ -6,12 +6,14 @@ import {
   type HouseholdPlanningPreferences,
   type MealPeriod,
   type SlotPreferenceKey,
-} from '@quisera/shared'
+} from '@quisera/shared/dates'
+import { useQuery } from '@tanstack/vue-query'
 import { SwitchRoot, SwitchThumb } from 'reka-ui'
-import { onMounted, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { getHouseholdPreferences, updateHouseholdPreferences } from '@/account/api'
 import Button from '@/components/ui/Button.vue'
 import { useToast } from '@/components/ui/toast'
+import { queryClient, queryKeys } from '@/lib/query'
 
 const toast = useToast()
 
@@ -36,9 +38,38 @@ const CALORIE_BALANCES: ReadonlyArray<{ id: CalorieBalance; label: string; hint:
   { id: 'heavier-dinner', label: 'Plus copieux le soir', hint: 'Repas plus léger le midi' },
 ]
 
-const loading = ref(true)
 const saving = ref(false)
-const loadError = ref('')
+const {
+  data: loadedPrefs,
+  isPending: loading,
+  error: prefsQueryError,
+} = useQuery({
+  queryKey: queryKeys.householdPreferences,
+  queryFn: getHouseholdPreferences,
+})
+
+watch(
+  loadedPrefs,
+  (data) => {
+    if (!data) return
+    prefs.value = {
+      ...data,
+      requiredSlots: [...data.requiredSlots],
+      excludedSlots: [...data.excludedSlots],
+      longRecipeDays: [...data.longRecipeDays],
+    }
+    syncInputsFromPrefs(data)
+  },
+  { immediate: true },
+)
+
+const loadError = computed(() =>
+  prefsQueryError.value instanceof Error
+    ? prefsQueryError.value.message
+    : prefsQueryError.value
+      ? 'Impossible de charger les préférences.'
+      : '',
+)
 const saveError = ref('')
 
 const prefs = ref<HouseholdPlanningPreferences>({
@@ -118,21 +149,6 @@ function parseOptionalInt(raw: string, min: number, max: number, label: string):
   return num
 }
 
-async function load() {
-  loading.value = true
-  loadError.value = ''
-  try {
-    const data = await getHouseholdPreferences()
-    prefs.value = data
-    syncInputsFromPrefs(data)
-  } catch (cause) {
-    loadError.value =
-      cause instanceof Error ? cause.message : 'Impossible de charger les préférences.'
-  } finally {
-    loading.value = false
-  }
-}
-
 async function submit() {
   saveError.value = ''
   let freshProductsMaxDays: number | null
@@ -170,6 +186,7 @@ async function submit() {
       weekdayMaxPrepMinutes,
       maxDailyCalories,
     })
+    queryClient.setQueryData(queryKeys.householdPreferences, saved)
     prefs.value = saved
     syncInputsFromPrefs(saved)
     toast.success('Préférences de répartition enregistrées.')
@@ -180,10 +197,6 @@ async function submit() {
     saving.value = false
   }
 }
-
-onMounted(() => {
-  void load()
-})
 </script>
 
 <template>
@@ -411,47 +424,43 @@ onMounted(() => {
   </div>
 </template>
 
-<style scoped lang="scss">
+<style scoped>
 .prefs {
   display: grid;
   gap: var(--q-space-4);
-
-  &__status {
-    padding: var(--q-space-6);
-    border-radius: var(--q-radius-card);
-    background: var(--q-peach);
-    font-weight: 600;
+}
+.prefs__status {
+  padding: var(--q-space-6);
+  border-radius: var(--q-radius-card);
+  background: var(--q-peach);
+  font-weight: 600;
+}
+.prefs__alert {
+  margin: 0;
+  padding: var(--q-space-3) var(--q-space-4);
+  border: 2px solid var(--q-tomato);
+  border-radius: var(--q-radius-control);
+  background: var(--q-peach);
+  color: var(--q-forest);
+  font-weight: 700;
+}
+.prefs__form {
+  display: grid;
+  gap: var(--q-space-4);
+}
+.prefs__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--q-space-4);
+}
+@media (max-width: 56rem) {
+  .prefs__grid {
+    grid-template-columns: 1fr;
   }
-
-  &__alert {
-    margin: 0;
-    padding: var(--q-space-3) var(--q-space-4);
-    border: 2px solid var(--q-tomato);
-    border-radius: var(--q-radius-control);
-    background: var(--q-peach);
-    color: var(--q-forest);
-    font-weight: 700;
-  }
-
-  &__form {
-    display: grid;
-    gap: var(--q-space-4);
-  }
-
-  &__grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--q-space-4);
-
-    @media (max-width: 56rem) {
-      grid-template-columns: 1fr;
-    }
-  }
-
-  &__actions {
-    display: flex;
-    justify-content: flex-end;
-  }
+}
+.prefs__actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .prefs-card {
@@ -463,37 +472,33 @@ onMounted(() => {
   border-radius: var(--q-radius-card);
   background: var(--q-peach);
   color: var(--q-forest);
-
-  h3 {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--q-space-2);
-    margin: 0;
-    font-family: var(--q-font-display);
-    font-size: var(--q-type-h4);
-    font-weight: 800;
-  }
-
-  &__head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: var(--q-space-3);
-
-    p {
-      margin: var(--q-space-2) 0 0;
-      max-width: 65ch;
-      font-size: var(--q-type-body-small);
-      line-height: var(--q-line-body);
-    }
-  }
-
-  &__presets {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--q-space-2);
-  }
+}
+.prefs-card h3 {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--q-space-2);
+  margin: 0;
+  font-family: var(--q-font-display);
+  font-size: var(--q-type-h4);
+  font-weight: 800;
+}
+.prefs-card__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--q-space-3);
+}
+.prefs-card__head p {
+  margin: var(--q-space-2) 0 0;
+  max-width: 65ch;
+  font-size: var(--q-type-body-small);
+  line-height: var(--q-line-body);
+}
+.prefs-card__presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--q-space-2);
 }
 
 .prefs-chip-btn {
@@ -509,15 +514,13 @@ onMounted(() => {
   font-size: var(--q-type-body-small);
   font-weight: 700;
   cursor: pointer;
-
-  &:hover {
-    background: var(--q-shoot);
-  }
-
-  &:focus-visible {
-    outline: 3px solid var(--q-focus);
-    outline-offset: 2px;
-  }
+}
+.prefs-chip-btn:hover {
+  background: var(--q-shoot);
+}
+.prefs-chip-btn:focus-visible {
+  outline: 3px solid var(--q-focus);
+  outline-offset: 2px;
 }
 
 .slot-matrix {
@@ -526,22 +529,20 @@ onMounted(() => {
   gap: var(--q-space-2);
   overflow-x: auto;
   padding-bottom: var(--q-space-1);
-
-  &__day {
-    text-align: center;
-    font-family: var(--q-font-display);
-    font-size: var(--q-type-label);
-    font-weight: 800;
-    color: var(--q-forest);
-  }
-
-  &__period {
-    display: flex;
-    align-items: center;
-    font-size: var(--q-type-label);
-    font-weight: 700;
-    color: var(--q-leaf);
-  }
+}
+.slot-matrix__day {
+  text-align: center;
+  font-family: var(--q-font-display);
+  font-size: var(--q-type-label);
+  font-weight: 800;
+  color: var(--q-forest);
+}
+.slot-matrix__period {
+  display: flex;
+  align-items: center;
+  font-size: var(--q-type-label);
+  font-weight: 700;
+  color: var(--q-leaf);
 }
 
 .slot-cell {
@@ -558,69 +559,60 @@ onMounted(() => {
   font-weight: 700;
   cursor: pointer;
   transition: background-color var(--q-duration-fast) var(--q-ease-standard);
-
-  &:focus-visible {
-    outline: 3px solid var(--q-focus);
-    outline-offset: 2px;
-  }
-
-  &--normal {
-    background: var(--q-peach);
-    color: var(--q-forest);
-
-    &:hover {
-      background: var(--q-sage);
-    }
-  }
-
-  &--required {
-    background: var(--q-shoot);
-    border-color: var(--q-forest);
-    color: var(--q-forest);
-  }
-
-  &--excluded {
-    background: var(--q-sage);
-    border-style: dashed;
-    color: var(--q-forest);
-  }
+}
+.slot-cell:focus-visible {
+  outline: 3px solid var(--q-focus);
+  outline-offset: 2px;
+}
+.slot-cell--normal {
+  background: var(--q-peach);
+  color: var(--q-forest);
+}
+.slot-cell--normal:hover {
+  background: var(--q-sage);
+}
+.slot-cell--required {
+  background: var(--q-shoot);
+  border-color: var(--q-forest);
+  color: var(--q-forest);
+}
+.slot-cell--excluded {
+  background: var(--q-sage);
+  border-style: dashed;
+  color: var(--q-forest);
 }
 
 .prefs-field {
   display: grid;
   gap: var(--q-space-2);
-
-  span {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    font-size: var(--q-type-label);
-    font-weight: 700;
-    color: var(--q-forest);
-  }
-
-  input {
-    width: 100%;
-    min-height: var(--q-touch-target);
-    padding: var(--q-space-2) var(--q-space-3);
-    border: 1px solid var(--q-leaf);
-    border-radius: var(--q-radius-control);
-    background: var(--q-sage);
-    color: var(--q-forest);
-    font-size: 1rem;
-    font-variant-numeric: tabular-nums;
-
-    &:focus-visible {
-      outline: 3px solid var(--q-focus);
-      outline-offset: 2px;
-    }
-  }
-
-  small {
-    color: var(--q-leaf);
-    font-size: var(--q-type-body-small);
-    line-height: var(--q-line-compact);
-  }
+}
+.prefs-field span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: var(--q-type-label);
+  font-weight: 700;
+  color: var(--q-forest);
+}
+.prefs-field input {
+  width: 100%;
+  min-height: var(--q-touch-target);
+  padding: var(--q-space-2) var(--q-space-3);
+  border: 1px solid var(--q-leaf);
+  border-radius: var(--q-radius-control);
+  background: var(--q-sage);
+  color: var(--q-forest);
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+.prefs-field input:focus-visible {
+  outline: 3px solid var(--q-focus);
+  outline-offset: 2px;
+}
+.prefs-field small {
+  color: var(--q-leaf);
+  font-size: var(--q-type-body-small);
+  line-height: var(--q-line-compact);
 }
 
 .day-pills {
@@ -641,17 +633,15 @@ onMounted(() => {
   font-size: var(--q-type-label);
   font-weight: 700;
   cursor: pointer;
-
-  &.is-active {
-    background: var(--q-forest);
-    border-color: var(--q-forest);
-    color: var(--q-peach);
-  }
-
-  &:focus-visible {
-    outline: 3px solid var(--q-focus);
-    outline-offset: 2px;
-  }
+}
+.day-pill.is-active {
+  background: var(--q-forest);
+  border-color: var(--q-forest);
+  color: var(--q-peach);
+}
+.day-pill:focus-visible {
+  outline: 3px solid var(--q-focus);
+  outline-offset: 2px;
 }
 
 .prefs-fieldset {
@@ -660,13 +650,12 @@ onMounted(() => {
   margin: 0;
   padding: 0;
   border: 0;
-
-  legend {
-    margin-bottom: var(--q-space-2);
-    font-size: var(--q-type-label);
-    font-weight: 700;
-    color: var(--q-forest);
-  }
+}
+.prefs-fieldset legend {
+  margin-bottom: var(--q-space-2);
+  font-size: var(--q-type-label);
+  font-weight: 700;
+  color: var(--q-forest);
 }
 
 .balance-options {
@@ -685,31 +674,26 @@ onMounted(() => {
   background: var(--q-sage);
   color: var(--q-forest);
   cursor: pointer;
-
-  strong {
-    font-family: var(--q-font-display);
-    font-size: var(--q-type-label);
-    font-weight: 800;
-  }
-
-  span {
-    font-size: var(--q-type-metadata);
-    color: var(--q-leaf);
-  }
-
-  &.is-active {
-    background: var(--q-shoot);
-    border-color: var(--q-forest);
-
-    span {
-      color: var(--q-forest);
-    }
-  }
-
-  &:focus-visible {
-    outline: 3px solid var(--q-focus);
-    outline-offset: 2px;
-  }
+}
+.balance-option strong {
+  font-family: var(--q-font-display);
+  font-size: var(--q-type-label);
+  font-weight: 800;
+}
+.balance-option span {
+  font-size: var(--q-type-metadata);
+  color: var(--q-leaf);
+}
+.balance-option.is-active {
+  background: var(--q-shoot);
+  border-color: var(--q-forest);
+}
+.balance-option.is-active span {
+  color: var(--q-forest);
+}
+.balance-option:focus-visible {
+  outline: 3px solid var(--q-focus);
+  outline-offset: 2px;
 }
 
 .prefs-toggles {
@@ -728,10 +712,9 @@ onMounted(() => {
   background: var(--q-sage);
   font-size: var(--q-type-body-small);
   font-weight: 600;
-
-  label {
-    cursor: pointer;
-  }
+}
+.prefs-switch-row label {
+  cursor: pointer;
 }
 
 .q-switch {
@@ -746,23 +729,20 @@ onMounted(() => {
   border-radius: var(--q-radius-card);
   background: var(--q-peach);
   transition: background-color var(--q-duration-fast) var(--q-ease-standard);
-
-  &[data-state='checked'] {
-    background: var(--q-forest);
-  }
-
-  &__thumb {
-    display: block;
-    width: 18px;
-    height: 18px;
-    border-radius: var(--q-radius-control);
-    background: var(--q-forest);
-    transition: transform var(--q-duration-fast) var(--q-ease-standard);
-
-    [data-state='checked'] > & {
-      transform: translateX(20px);
-      background: var(--q-shoot);
-    }
-  }
+}
+.q-switch[data-state='checked'] {
+  background: var(--q-forest);
+}
+.q-switch__thumb {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--q-radius-control);
+  background: var(--q-forest);
+  transition: transform var(--q-duration-fast) var(--q-ease-standard);
+}
+[data-state='checked'] > .q-switch__thumb {
+  transform: translateX(20px);
+  background: var(--q-shoot);
 }
 </style>

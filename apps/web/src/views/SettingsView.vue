@@ -1,38 +1,24 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { useQuery } from '@tanstack/vue-query'
+import { computed, defineAsyncComponent, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import {
-  Check,
-  Copy,
-  KeyRound,
-  Mail,
-  Palette,
-  ShieldCheck,
-  SlidersHorizontal,
-  Trash2,
-  User,
-  UserPlus,
-  Users,
-} from '@lucide/vue'
+import { Check, KeyRound, Palette, ShieldCheck, User, Users } from '@lucide/vue'
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
-import HouseholdPreferencesPanel from '@/components/settings/HouseholdPreferencesPanel.vue'
 import Button from '@/components/ui/Button.vue'
 import { authClient } from '@/auth/client'
 import { queryClient, queryKeys } from '@/lib/query'
 import { applyTheme, getStoredTheme, themeOptions, type ThemeId } from '@/styles/themes'
 import {
   changePassword,
-  createHouseholdInvitation,
   getHousehold,
   getProfile,
-  removeHouseholdMember,
-  renameHousehold,
-  revokeHouseholdInvitation,
   revokeOtherSessions,
   updateProfile,
-  type HouseholdOverview,
-  type UserProfile,
 } from '@/account/api'
+
+const SettingsHouseholdTab = defineAsyncComponent(
+  () => import('@/components/settings/SettingsHouseholdTab.vue'),
+)
 
 type TabId = 'profil' | 'foyer'
 type FoyerSectionId = 'membres' | 'preferences'
@@ -54,17 +40,54 @@ function switchFoyerSection(section: FoyerSectionId) {
   void router.replace({ query: { ...route.query, tab: 'foyer', section } })
 }
 
-// Profile state
-const profile = ref<UserProfile | null>(null)
-const profileLoading = ref(true)
+// Profile state via declarative TanStack Query
+const {
+  data: profile,
+  isPending: profileLoading,
+  error: profileQueryError,
+  refetch: refetchProfile,
+} = useQuery({
+  queryKey: queryKeys.profile,
+  queryFn: getProfile,
+})
+
+// Lazy household query: only fetched when the "Mon foyer" tab is opened
+const { data: household } = useQuery({
+  queryKey: queryKeys.household,
+  queryFn: getHousehold,
+  enabled: computed(() => activeTab.value === 'foyer'),
+})
+
 const profileSaving = ref(false)
-const profileError = ref('')
+const profileActionError = ref('')
 const profileSuccess = ref('')
+
+const profileError = computed(() =>
+  profileActionError.value
+    ? profileActionError.value
+    : profileQueryError.value instanceof Error
+      ? profileQueryError.value.message
+      : profileQueryError.value
+        ? 'Profil indisponible.'
+        : '',
+)
 
 const formName = ref('')
 const formUsername = ref('')
 const formEmail = ref('')
 const formEmailPassword = ref('')
+
+watch(
+  profile,
+  (data) => {
+    if (!data) return
+    formName.value = data.name
+    formUsername.value = data.username ?? ''
+    formEmail.value = data.email
+    formEmailPassword.value = ''
+  },
+  { immediate: true },
+)
 
 const emailChanged = computed(() => {
   if (!profile.value) return false
@@ -91,22 +114,6 @@ function selectTheme(id: ThemeId) {
 // Sessions state
 const revokingSessions = ref(false)
 
-// Household state
-const household = ref<HouseholdOverview | null>(null)
-const householdLoading = ref(true)
-const householdError = ref('')
-const householdSuccess = ref('')
-const householdNameInput = ref('')
-const householdRenaming = ref(false)
-
-// Invitation form state
-const inviteEmail = ref('')
-const inviteName = ref('')
-const inviting = ref(false)
-const inviteError = ref('')
-const createdInviteUrl = ref('')
-const copiedLink = ref(false)
-
 function formatDate(iso: string) {
   return new Intl.DateTimeFormat('fr-FR', {
     day: 'numeric',
@@ -116,46 +123,9 @@ function formatDate(iso: string) {
   }).format(new Date(iso))
 }
 
-async function loadProfile() {
-  profileLoading.value = !profile.value
-  profileError.value = ''
-  try {
-    const data = await queryClient.fetchQuery({
-      queryKey: queryKeys.profile,
-      queryFn: () => getProfile(),
-    })
-    profile.value = data
-    formName.value = data.name
-    formUsername.value = data.username ?? ''
-    formEmail.value = data.email
-    formEmailPassword.value = ''
-  } catch (cause) {
-    profileError.value = cause instanceof Error ? cause.message : 'Profil indisponible.'
-  } finally {
-    profileLoading.value = false
-  }
-}
-
-async function loadHousehold() {
-  householdLoading.value = !household.value
-  householdError.value = ''
-  try {
-    const data = await queryClient.fetchQuery({
-      queryKey: queryKeys.household,
-      queryFn: () => getHousehold(),
-    })
-    household.value = data
-    householdNameInput.value = data.name
-  } catch (cause) {
-    householdError.value = cause instanceof Error ? cause.message : 'Foyer indisponible.'
-  } finally {
-    householdLoading.value = false
-  }
-}
-
 async function submitProfile() {
   profileSaving.value = true
-  profileError.value = ''
+  profileActionError.value = ''
   profileSuccess.value = ''
   try {
     const updated = await updateProfile({
@@ -164,16 +134,16 @@ async function submitProfile() {
       email: formEmail.value.trim(),
       ...(emailChanged.value ? { currentPassword: formEmailPassword.value } : {}),
     })
-    profile.value = updated
+    queryClient.setQueryData(queryKeys.profile, updated)
     formName.value = updated.name
     formUsername.value = updated.username ?? ''
     formEmail.value = updated.email
     formEmailPassword.value = ''
     profileSuccess.value = 'Votre profil a été mis à jour.'
     await session.value.refetch()
-    await loadHousehold()
+    await queryClient.invalidateQueries({ queryKey: queryKeys.household })
   } catch (cause) {
-    profileError.value = cause instanceof Error ? cause.message : 'Mise à jour impossible.'
+    profileActionError.value = cause instanceof Error ? cause.message : 'Mise à jour impossible.'
   } finally {
     profileSaving.value = false
   }
@@ -201,7 +171,8 @@ async function submitPassword() {
     newPassword.value = ''
     confirmPassword.value = ''
     passwordSuccess.value = 'Votre mot de passe a été modifié.'
-    await loadProfile()
+    await queryClient.invalidateQueries({ queryKey: queryKeys.profile })
+    await refetchProfile()
   } catch (cause) {
     passwordError.value =
       cause instanceof Error ? cause.message : 'Impossible de modifier le mot de passe.'
@@ -212,107 +183,24 @@ async function submitPassword() {
 
 async function handleRevokeOtherSessions() {
   revokingSessions.value = true
-  profileError.value = ''
+  profileActionError.value = ''
   profileSuccess.value = ''
   try {
     const res = await revokeOtherSessions()
     if (profile.value) {
-      profile.value.activeSessionsCount = res.activeSessionsCount
+      queryClient.setQueryData(queryKeys.profile, {
+        ...profile.value,
+        activeSessionsCount: res.activeSessionsCount,
+      })
     }
     profileSuccess.value = 'Les autres sessions ont été déconnectées.'
   } catch (cause) {
-    profileError.value =
+    profileActionError.value =
       cause instanceof Error ? cause.message : 'Impossible de révoquer les sessions.'
   } finally {
     revokingSessions.value = false
   }
 }
-
-async function submitHouseholdName() {
-  if (!householdNameInput.value.trim()) return
-  householdRenaming.value = true
-  householdError.value = ''
-  householdSuccess.value = ''
-  try {
-    const updated = await renameHousehold(householdNameInput.value.trim())
-    if (household.value) household.value.name = updated.name
-    householdSuccess.value = 'Le nom du foyer a été mis à jour.'
-  } catch (cause) {
-    householdError.value = cause instanceof Error ? cause.message : 'Renommage impossible.'
-  } finally {
-    householdRenaming.value = false
-  }
-}
-
-async function submitInvitation() {
-  inviting.value = true
-  inviteError.value = ''
-  createdInviteUrl.value = ''
-  copiedLink.value = false
-  try {
-    const trimmedInvitedName = inviteName.value.trim()
-    const result = await createHouseholdInvitation({
-      email: inviteEmail.value.trim(),
-      ...(trimmedInvitedName ? { invitedName: trimmedInvitedName } : {}),
-    })
-    createdInviteUrl.value = result.inviteUrl
-    inviteEmail.value = ''
-    inviteName.value = ''
-    await loadHousehold()
-  } catch (cause) {
-    inviteError.value = cause instanceof Error ? cause.message : 'Impossible de créer l’invitation.'
-  } finally {
-    inviting.value = false
-  }
-}
-
-async function copyInviteUrl() {
-  if (!createdInviteUrl.value) return
-  try {
-    await navigator.clipboard.writeText(createdInviteUrl.value)
-    copiedLink.value = true
-    window.setTimeout(() => {
-      copiedLink.value = false
-    }, 2500)
-  } catch {
-    copiedLink.value = false
-  }
-}
-
-async function handleRevokeInvitation(id: string) {
-  householdError.value = ''
-  householdSuccess.value = ''
-  try {
-    await revokeHouseholdInvitation(id)
-    householdSuccess.value = 'Invitation révoquée.'
-    await loadHousehold()
-  } catch (cause) {
-    householdError.value = cause instanceof Error ? cause.message : 'Révocation impossible.'
-  }
-}
-
-async function handleRemoveMember(userId: string, memberName: string) {
-  if (
-    !window.confirm(
-      `Retirer ${memberName} du foyer ? Son compte ne sera pas supprimé mais il ne fera plus partie de ce foyer.`,
-    )
-  ) {
-    return
-  }
-  householdError.value = ''
-  householdSuccess.value = ''
-  try {
-    await removeHouseholdMember(userId)
-    householdSuccess.value = `${memberName} a été retiré du foyer.`
-    await loadHousehold()
-  } catch (cause) {
-    householdError.value = cause instanceof Error ? cause.message : 'Suppression impossible.'
-  }
-}
-
-onMounted(() => {
-  void Promise.all([loadProfile(), loadHousehold()])
-})
 </script>
 
 <template>
@@ -577,244 +465,23 @@ onMounted(() => {
 
     <!-- FOYER TAB -->
     <TabsContent value="foyer" class="settings__panel">
-      <TabsRoot
-        class="settings__subtabs-root"
-        :model-value="activeFoyerSection"
-        @update:model-value="
-          (val) => switchFoyerSection(val === 'preferences' ? 'preferences' : 'membres')
-        "
-      >
-        <TabsList class="settings__subtabs" aria-label="Sections du foyer">
-          <TabsTrigger
-            value="membres"
-            class="settings__subtab"
-            :class="{ 'is-active': activeFoyerSection === 'membres' }"
-          >
-            <Users :size="16" aria-hidden="true" />
-            Membres & invitations
-          </TabsTrigger>
-          <TabsTrigger
-            value="preferences"
-            class="settings__subtab"
-            :class="{ 'is-active': activeFoyerSection === 'preferences' }"
-          >
-            <SlidersHorizontal :size="16" aria-hidden="true" />
-            Préférences planning
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="membres" class="settings__panel">
-          <div v-if="householdLoading" class="settings__status" role="status">
-            Chargement de votre foyer…
-          </div>
-          <template v-else-if="household">
-            <header class="household-hero">
-              <form class="household-hero__form" @submit.prevent="submitHouseholdName">
-                <label class="household-hero__label">
-                  <span>Nom du foyer</span>
-                  <div class="household-hero__input-row">
-                    <input v-model="householdNameInput" type="text" required maxlength="80" />
-                    <Button type="submit" variant="secondary" :loading="householdRenaming"
-                      >Renommer</Button
-                    >
-                  </div>
-                </label>
-              </form>
-              <div class="household-hero__stats">
-                <span class="household-hero__stat">
-                  <Users :size="15" aria-hidden="true" />
-                  {{ household.members.length }}
-                  {{ household.members.length > 1 ? 'membres' : 'membre' }}
-                </span>
-                <span class="household-hero__stat household-hero__stat--soft">
-                  <Mail :size="15" aria-hidden="true" />
-                  {{ household.invitations.length }}
-                  {{
-                    household.invitations.length > 1
-                      ? 'invitations en attente'
-                      : 'invitation en attente'
-                  }}
-                </span>
-              </div>
-            </header>
-
-            <p v-if="householdError" class="settings__alert settings__alert--error" role="alert">
-              Erreur : {{ householdError }}
-            </p>
-            <p
-              v-if="householdSuccess"
-              class="settings__alert settings__alert--success"
-              role="status"
-            >
-              {{ householdSuccess }}
-            </p>
-
-            <div class="settings__grid settings__grid--household">
-              <section class="settings-card">
-                <div class="settings-card__head">
-                  <h3>
-                    <Users :size="18" aria-hidden="true" />
-                    Membres du foyer
-                  </h3>
-                  <p>Les membres partagent le même planning et la bibliothèque de recettes.</p>
-                </div>
-
-                <ul class="member-list">
-                  <li v-for="member in household.members" :key="member.id" class="member-card">
-                    <span
-                      class="member-card__avatar"
-                      :class="{
-                        'member-card__avatar--owner': member.role === 'owner',
-                      }"
-                      aria-hidden="true"
-                      >{{ member.name.slice(0, 1).toUpperCase() }}</span
-                    >
-                    <div class="member-card__info">
-                      <div class="member-card__title-row">
-                        <strong>{{ member.name }}</strong>
-                        <span v-if="member.username" class="member-card__handle"
-                          >@{{ member.username }}</span
-                        >
-                        <span v-if="member.isCurrentUser" class="member-card__you">Vous</span>
-                        <span
-                          class="member-card__role"
-                          :class="`member-card__role--${member.role}`"
-                          >{{ member.role === 'owner' ? 'Propriétaire' : 'Membre' }}</span
-                        >
-                      </div>
-                      <p class="member-card__meta">
-                        {{ member.email }} · Rejoint le
-                        {{ formatDate(member.joinedAt) }}
-                      </p>
-                    </div>
-                    <button
-                      v-if="household.currentUserRole === 'owner' && !member.isCurrentUser"
-                      type="button"
-                      class="member-card__remove"
-                      :aria-label="`Retirer ${member.name} du foyer`"
-                      @click="handleRemoveMember(member.id, member.name)"
-                    >
-                      <Trash2 :size="16" aria-hidden="true" />
-                      Retirer
-                    </button>
-                  </li>
-                </ul>
-              </section>
-
-              <section class="settings-card">
-                <div class="settings-card__head">
-                  <h3>
-                    <UserPlus :size="18" aria-hidden="true" />
-                    Inviter une personne
-                  </h3>
-                  <p>
-                    Générez un lien d’invitation sécurisé valable 7 jours pour permettre à un proche
-                    de rejoindre votre foyer.
-                  </p>
-                </div>
-
-                <p v-if="inviteError" class="settings__alert settings__alert--error" role="alert">
-                  Erreur : {{ inviteError }}
-                </p>
-
-                <form class="invite-form" @submit.prevent="submitInvitation">
-                  <label class="settings-field">
-                    <span>Adresse e-mail de la personne invitée</span>
-                    <input
-                      v-model="inviteEmail"
-                      type="email"
-                      required
-                      placeholder="prenom@exemple.fr"
-                    />
-                  </label>
-
-                  <label class="settings-field">
-                    <span>Prénom ou nom (facultatif)</span>
-                    <input
-                      v-model="inviteName"
-                      type="text"
-                      maxlength="80"
-                      placeholder="ex. Camille"
-                    />
-                  </label>
-
-                  <div class="settings-card__actions">
-                    <Button type="submit" :loading="inviting">
-                      <UserPlus :size="16" aria-hidden="true" />
-                      Créer le lien d’invitation
-                    </Button>
-                  </div>
-                </form>
-
-                <div v-if="createdInviteUrl" class="invite-link-box" role="status">
-                  <strong>Lien d’invitation prêt à être partagé :</strong>
-                  <div class="invite-link-box__row">
-                    <input
-                      :value="createdInviteUrl"
-                      type="text"
-                      readonly
-                      aria-label="Lien d’invitation"
-                      @focus="($event.target as HTMLInputElement).select()"
-                    />
-                    <Button type="button" variant="secondary" @click="copyInviteUrl">
-                      <Check v-if="copiedLink" :size="16" aria-hidden="true" />
-                      <Copy v-else :size="16" aria-hidden="true" />
-                      {{ copiedLink ? 'Copié !' : 'Copier' }}
-                    </Button>
-                  </div>
-                  <small
-                    >Ce lien est à usage unique et expire dans 7 jours. Transmettez-le directement à
-                    votre proche.</small
-                  >
-                </div>
-
-                <div v-if="household.invitations.length" class="pending-invitations">
-                  <h4>Invitations en attente</h4>
-                  <ul>
-                    <li
-                      v-for="inv in household.invitations"
-                      :key="inv.id"
-                      class="pending-invitation"
-                    >
-                      <div>
-                        <strong>{{
-                          inv.invitedName ? `${inv.invitedName} · ${inv.email}` : inv.email
-                        }}</strong>
-                        <small
-                          >Invité par {{ inv.invitedByName }} · Expire le
-                          {{ formatDate(inv.expiresAt) }}</small
-                        >
-                      </div>
-                      <button
-                        type="button"
-                        class="pending-invitation__revoke"
-                        @click="handleRevokeInvitation(inv.id)"
-                      >
-                        Révoquer
-                      </button>
-                    </li>
-                  </ul>
-                </div>
-              </section>
-            </div>
-          </template>
-        </TabsContent>
-
-        <TabsContent value="preferences" class="settings__panel">
-          <HouseholdPreferencesPanel />
-        </TabsContent>
-      </TabsRoot>
+      <SettingsHouseholdTab
+        v-if="activeTab === 'foyer'"
+        :active-section="activeFoyerSection"
+        @switch-section="switchFoyerSection"
+      />
     </TabsContent>
   </TabsRoot>
 </template>
 
-<style scoped lang="scss">
+<style scoped>
 .settings {
   display: flex;
   flex-direction: column;
   gap: var(--q-space-4);
   color: var(--q-forest);
 }
+
 .settings__tabs {
   display: inline-flex;
   width: fit-content;
@@ -824,6 +491,7 @@ onMounted(() => {
   background: var(--q-peach);
   border: 2px solid var(--q-forest);
 }
+
 .settings__tab {
   display: inline-flex;
   align-items: center;
@@ -842,23 +510,28 @@ onMounted(() => {
     background-color var(--q-duration-fast) var(--q-ease-standard),
     color var(--q-duration-fast) var(--q-ease-standard);
 }
+
 .settings__tab:hover:not(.is-active) {
   background: var(--q-shoot);
 }
+
 .settings__tab.is-active {
   background: var(--q-forest);
   color: var(--q-peach);
 }
+
 .settings__subtabs-root {
   display: grid;
   gap: var(--q-space-4);
 }
+
 .settings__subtabs {
   display: inline-flex;
   width: fit-content;
   flex-wrap: wrap;
   gap: var(--q-space-2);
 }
+
 .settings__subtab {
   display: inline-flex;
   align-items: center;
@@ -874,18 +547,22 @@ onMounted(() => {
   font-weight: 700;
   cursor: pointer;
 }
+
 .settings__subtab:hover:not(.is-active) {
   background: var(--q-shoot);
 }
+
 .settings__subtab.is-active {
   background: var(--q-shoot);
   border-color: var(--q-forest);
   color: var(--q-forest);
 }
+
 .settings__subtab:focus-visible {
   outline: 3px solid var(--q-focus);
   outline-offset: 2px;
 }
+
 .settings__tab-count {
   display: inline-grid;
   place-items: center;
@@ -899,11 +576,13 @@ onMounted(() => {
   font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
+
 .settings__panel {
   display: flex;
   flex-direction: column;
   gap: var(--q-space-4);
 }
+
 .settings__status {
   padding: var(--q-space-4);
   border-radius: var(--q-radius-card);
@@ -911,6 +590,7 @@ onMounted(() => {
   border: 1px solid var(--q-leaf);
   font-weight: 600;
 }
+
 .profile-hero {
   display: flex;
   align-items: center;
@@ -923,12 +603,14 @@ onMounted(() => {
   color: var(--q-peach);
   border: 2px solid var(--q-forest);
 }
+
 .profile-hero__identity {
   display: flex;
   align-items: center;
   gap: var(--q-space-4);
   min-width: 0;
 }
+
 .profile-hero__avatar {
   display: grid;
   place-items: center;
@@ -942,17 +624,20 @@ onMounted(() => {
   font-size: 1.75rem;
   font-weight: 850;
 }
+
 .profile-hero__text {
   display: grid;
   gap: 0.3rem;
   min-width: 0;
 }
+
 .profile-hero__name-row {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: var(--q-space-2);
 }
+
 .profile-hero__name-row h2 {
   margin: 0;
   font-family: var(--q-font-display);
@@ -960,6 +645,7 @@ onMounted(() => {
   font-weight: 800;
   line-height: 1.1;
 }
+
 .profile-hero__handle {
   padding: 0.2rem 0.55rem;
   border-radius: var(--q-radius-control);
@@ -968,6 +654,7 @@ onMounted(() => {
   font-size: var(--q-type-label);
   font-weight: 700;
 }
+
 .profile-hero__role {
   padding: 0.2rem 0.55rem;
   border-radius: var(--q-radius-control);
@@ -976,17 +663,20 @@ onMounted(() => {
   font-size: var(--q-type-metadata);
   font-weight: 800;
 }
+
 .profile-hero__meta {
   margin: 0;
   font-size: var(--q-type-label);
   color: var(--q-sage);
 }
+
 .profile-hero__sessions {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: var(--q-space-2);
 }
+
 .profile-hero__session-pill {
   display: inline-flex;
   align-items: center;
@@ -998,6 +688,7 @@ onMounted(() => {
   font-size: var(--q-type-label);
   font-weight: 700;
 }
+
 .profile-hero__revoke {
   min-height: 38px;
   padding: 0 var(--q-space-3);
@@ -1009,11 +700,13 @@ onMounted(() => {
   font-weight: 700;
   cursor: pointer;
 }
+
 .profile-hero__revoke:hover {
   background: var(--q-coral);
   border-color: var(--q-coral);
   color: var(--q-forest);
 }
+
 .household-hero {
   display: flex;
   align-items: flex-end;
@@ -1026,24 +719,29 @@ onMounted(() => {
   color: var(--q-peach);
   border: 2px solid var(--q-forest);
 }
+
 .household-hero__form {
   flex: 1 1 22rem;
 }
+
 .household-hero__label {
   display: grid;
   gap: var(--q-space-2);
 }
+
 .household-hero__label span {
   font-family: var(--q-font-display);
   font-size: var(--q-type-label);
   font-weight: 750;
   color: var(--q-shoot);
 }
+
 .household-hero__input-row {
   display: flex;
   flex-wrap: wrap;
   gap: var(--q-space-2);
 }
+
 .household-hero__input-row input {
   flex: 1 1 14rem;
   min-height: var(--q-touch-target);
@@ -1056,11 +754,13 @@ onMounted(() => {
   font-size: 1.125rem;
   font-weight: 750;
 }
+
 .household-hero__stats {
   display: flex;
   flex-wrap: wrap;
   gap: var(--q-space-2);
 }
+
 .household-hero__stat {
   display: inline-flex;
   align-items: center;
@@ -1072,16 +772,19 @@ onMounted(() => {
   font-size: var(--q-type-label);
   font-weight: 700;
 }
+
 .household-hero__stat--soft {
   background: var(--q-shoot);
   color: var(--q-forest);
 }
+
 .settings__grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--q-space-4);
   align-items: start;
 }
+
 .settings-card {
   display: flex;
   flex-direction: column;
@@ -1091,10 +794,12 @@ onMounted(() => {
   background: var(--q-peach);
   border: 2px solid var(--q-forest);
 }
+
 .settings-card__head {
   display: grid;
   gap: 0.25rem;
 }
+
 .settings-card__head h3 {
   margin: 0;
   display: inline-flex;
@@ -1105,11 +810,13 @@ onMounted(() => {
   font-weight: 800;
   color: var(--q-forest);
 }
+
 .settings-card__head p {
   margin: 0;
   font-size: var(--q-type-label);
   color: var(--q-leaf);
 }
+
 .settings__alert {
   margin: 0;
   padding: var(--q-space-3);
@@ -1117,24 +824,29 @@ onMounted(() => {
   font-size: var(--q-type-label);
   font-weight: 700;
 }
+
 .settings__alert--error {
   background: var(--q-peach);
   color: var(--q-forest);
   outline: 2px solid var(--q-tomato);
 }
+
 .settings__alert--success {
   background: var(--q-shoot);
   color: var(--q-forest);
 }
+
 .settings-field {
   display: grid;
   gap: 0.35rem;
 }
+
 .settings-field > span {
   font-size: var(--q-type-label);
   font-weight: 700;
   color: var(--q-forest);
 }
+
 .settings-field input {
   width: 100%;
   min-height: var(--q-touch-target);
@@ -1145,27 +857,33 @@ onMounted(() => {
   color: var(--q-forest);
   font-size: 1rem;
 }
+
 .settings-field input:focus-visible {
   outline: 3px solid var(--q-forest);
   outline-offset: 2px;
 }
+
 .settings-field small {
   font-size: var(--q-type-metadata);
   color: var(--q-leaf);
   font-weight: 600;
 }
+
 .settings-field small.is-valid {
   color: var(--q-forest);
 }
+
 .settings-field--highlight {
   padding: var(--q-space-3);
   border-radius: var(--q-radius-control);
   background: var(--q-shoot);
 }
+
 .settings-field__prefix-wrap {
   display: flex;
   align-items: stretch;
 }
+
 .settings-field__prefix {
   display: grid;
   place-items: center;
@@ -1175,10 +893,12 @@ onMounted(() => {
   border-radius: var(--q-radius-control) 0 0 var(--q-radius-control);
   font-weight: 800;
 }
+
 .settings-field__prefix-wrap input {
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
 }
+
 .settings-checkbox {
   display: flex;
   align-items: center;
@@ -1187,206 +907,24 @@ onMounted(() => {
   font-weight: 600;
   cursor: pointer;
 }
+
 .settings-checkbox input {
   width: 1.15rem;
   height: 1.15rem;
   accent-color: var(--q-forest);
 }
+
 .settings-card__actions {
   display: flex;
   justify-content: flex-start;
 }
-.member-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: var(--q-space-3);
-}
-.member-card {
-  display: flex;
-  align-items: center;
-  gap: var(--q-space-3);
-  padding: var(--q-space-3);
-  border-radius: var(--q-radius-control);
-  background: var(--q-sage);
-  border: 1px solid var(--q-leaf);
-}
-.member-card__avatar {
-  display: grid;
-  place-items: center;
-  flex: none;
-  width: 2.75rem;
-  height: 2.75rem;
-  border-radius: var(--q-radius-control);
-  background: var(--q-forest);
-  color: var(--q-peach);
-  font-family: var(--q-font-display);
-  font-size: 1.125rem;
-  font-weight: 800;
-}
-.member-card__avatar--owner {
-  background: var(--q-shoot);
-  color: var(--q-forest);
-  border: 1px solid var(--q-forest);
-}
-.member-card__info {
-  flex: 1;
-  min-width: 0;
-  display: grid;
-  gap: 0.2rem;
-}
-.member-card__title-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-.member-card__title-row strong {
-  font-family: var(--q-font-display);
-  font-weight: 750;
-}
-.member-card__handle {
-  font-size: var(--q-type-metadata);
-  font-weight: 700;
-  color: var(--q-leaf);
-}
-.member-card__you,
-.member-card__role {
-  padding: 0.15rem 0.45rem;
-  border-radius: var(--q-radius-control);
-  font-size: var(--q-type-metadata);
-  font-weight: 750;
-}
-.member-card__you {
-  background: var(--q-forest);
-  color: var(--q-peach);
-}
-.member-card__role--owner {
-  background: var(--q-shoot);
-  color: var(--q-forest);
-}
-.member-card__role--member {
-  background: var(--q-peach);
-  color: var(--q-forest);
-}
-.member-card__meta {
-  margin: 0;
-  font-size: var(--q-type-metadata);
-  color: var(--q-leaf);
-  overflow-wrap: anywhere;
-}
-.member-card__remove {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  min-height: 38px;
-  padding: 0 0.7rem;
-  border: 1px solid var(--q-tomato);
-  border-radius: var(--q-radius-control);
-  background: var(--q-peach);
-  color: var(--q-forest);
-  font-size: var(--q-type-metadata);
-  font-weight: 700;
-  cursor: pointer;
-}
-.member-card__remove:hover {
-  background: var(--q-coral);
-}
-.invite-form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--q-space-3);
-}
-.invite-link-box {
-  display: grid;
-  gap: var(--q-space-2);
-  padding: var(--q-space-4);
-  border-radius: var(--q-radius-control);
-  background: var(--q-shoot);
-  border: 2px solid var(--q-forest);
-}
-.invite-link-box__row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--q-space-2);
-}
-.invite-link-box__row input {
-  flex: 1 1 14rem;
-  min-height: var(--q-touch-target);
-  padding: 0.45rem 0.65rem;
-  border: 1px solid var(--q-forest);
-  border-radius: var(--q-radius-control);
-  background: var(--q-peach);
-  color: var(--q-forest);
-  font-size: var(--q-type-label);
-}
-.invite-link-box small {
-  font-size: var(--q-type-metadata);
-  color: var(--q-forest);
-  font-weight: 600;
-}
-.pending-invitations {
-  display: grid;
-  gap: var(--q-space-2);
-  padding-top: var(--q-space-3);
-  border-top: 1px solid var(--q-leaf);
-}
-.pending-invitations h4 {
-  margin: 0;
-  font-family: var(--q-font-display);
-  font-size: var(--q-type-label);
-  font-weight: 800;
-}
-.pending-invitations ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: var(--q-space-2);
-}
-.pending-invitation {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--q-space-3);
-  padding: var(--q-space-3);
-  border-radius: var(--q-radius-control);
-  background: var(--q-sage);
-  border: 1px solid var(--q-leaf);
-}
-.pending-invitation div {
-  display: grid;
-  gap: 0.15rem;
-  min-width: 0;
-}
-.pending-invitation strong {
-  font-size: var(--q-type-label);
-  overflow-wrap: anywhere;
-}
-.pending-invitation small {
-  font-size: var(--q-type-metadata);
-  color: var(--q-leaf);
-}
-.pending-invitation__revoke {
-  min-height: 36px;
-  padding: 0 0.7rem;
-  border: 1px solid var(--q-forest);
-  border-radius: var(--q-radius-control);
-  background: var(--q-peach);
-  color: var(--q-forest);
-  font-size: var(--q-type-metadata);
-  font-weight: 700;
-  cursor: pointer;
-}
-.pending-invitation__revoke:hover {
-  background: var(--q-coral);
-}
+
 .theme-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(17.5rem, 1fr));
   gap: var(--q-space-3);
 }
+
 .theme-card {
   display: flex;
   flex-direction: column;
@@ -1403,35 +941,42 @@ onMounted(() => {
     background-color var(--q-duration-fast) var(--q-ease-standard),
     transform var(--q-duration-fast) var(--q-ease-standard);
 }
+
 .theme-card:hover {
   border-color: var(--q-forest);
   transform: translateY(-2px);
 }
+
 .theme-card.is-selected {
   border-color: var(--q-forest);
   background: var(--q-shoot);
 }
+
 .theme-card:focus-visible {
   outline: 3px solid var(--q-forest);
   outline-offset: 2px;
 }
+
 .theme-card__top {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--q-space-2);
 }
+
 .theme-card__title-wrap {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 0.4rem;
 }
+
 .theme-card__title-wrap strong {
   font-family: var(--q-font-display);
   font-size: 1rem;
   font-weight: 800;
 }
+
 .theme-card__mode {
   padding: 0.12rem 0.45rem;
   border-radius: var(--q-radius-control);
@@ -1440,6 +985,7 @@ onMounted(() => {
   font-size: var(--q-type-metadata);
   font-weight: 700;
 }
+
 .theme-card__active {
   display: inline-flex;
   align-items: center;
@@ -1451,12 +997,14 @@ onMounted(() => {
   font-size: var(--q-type-metadata);
   font-weight: 750;
 }
+
 .theme-card__desc {
   margin: 0;
   font-size: var(--q-type-metadata);
   line-height: 1.4;
   color: var(--q-forest);
 }
+
 .theme-card__swatches {
   margin-top: auto;
   padding-top: var(--q-space-2);
@@ -1464,6 +1012,7 @@ onMounted(() => {
   align-items: center;
   gap: 0.45rem;
 }
+
 .theme-card__swatch {
   width: 1.65rem;
   height: 1.65rem;
@@ -1471,6 +1020,7 @@ onMounted(() => {
   border: 2px solid var(--q-forest);
   flex: none;
 }
+
 @media (max-width: 64rem) {
   .settings__grid {
     grid-template-columns: 1fr;

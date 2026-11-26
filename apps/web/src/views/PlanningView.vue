@@ -1,34 +1,33 @@
 <script setup lang="ts">
 defineOptions({ name: 'PlanningView' })
 
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import { computed, defineAsyncComponent, onMounted, ref, shallowRef, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import {
   addCivilDays,
   addCivilMonths,
-  civilDateSchema,
   deliveryCycleSlots,
+  isCivilDate,
   monthGridDates,
   parisCivilDate,
-  type PlanningRange,
-  type RecipeNutrition,
-} from '@quisera/shared'
+} from '@quisera/shared/dates'
+import type { PlanningRange, RecipeNutrition } from '@quisera/shared'
 import {
+  ChefHat,
   ChevronLeft,
   ChevronRight,
-  Clock3,
   Plus,
   RefreshCw,
   SlidersHorizontal,
   X,
 } from '@lucide/vue'
-import NutritionPanel from '@/components/recipes/NutritionPanel.vue'
+import RecipeCard from '@/components/recipes/RecipeCard.vue'
 import Button from '@/components/ui/Button.vue'
-import ScoreBadge from '@/components/ui/ScoreBadge.vue'
 import { useToast } from '@/components/ui/toast'
 import { queryClient, queryKeys } from '@/lib/query'
 import { listRecipes } from '@/recipes/api'
-import { parseStructuredStep } from '@/recipes/instructions'
+import { recipeMetricValue, resolveRecipeSourceLabel } from '@/recipes/presentation'
+import { useSlotDrag } from '@/planning/useSlotDrag'
 import {
   clearPlanningSlot,
   type DeliverySnapshot,
@@ -40,6 +39,14 @@ import {
   syncDeliveries,
   syncDeliveryRecipes,
 } from '@/planning/api'
+
+const PlanningMealModal = defineAsyncComponent(
+  () => import('@/components/planning/PlanningMealModal.vue'),
+)
+const PlanningMonthGrid = defineAsyncComponent(
+  () => import('@/components/planning/PlanningMonthGrid.vue'),
+)
+const ModalDialog = defineAsyncComponent(() => import('@/components/ui/ModalDialog.vue'))
 
 type ViewMode = 'week' | 'month' | 'day'
 type SlotMeal = NonNullable<PlanningRange['days'][number]['lunch']['meal']>
@@ -68,7 +75,10 @@ type Selection = {
 type HomeRecipeOption = {
   id: string
   title: string
+  sourceLabel: string
+  description: string | null
   totalMinutes: number | null
+  caloriesKcal: number | null
   nutriScore: string | null
   carbonScore: string | null
 }
@@ -76,8 +86,8 @@ const route = useRoute()
 const router = useRouter()
 const toast = useToast()
 const selectedDate = computed(() =>
-  civilDateSchema.safeParse(route.query['date']).success
-    ? (route.query['date'] as string)
+  typeof route.query['date'] === 'string' && isCivilDate(route.query['date'])
+    ? route.query['date']
     : parisCivilDate(new Date()),
 )
 const view = computed<ViewMode>(() =>
@@ -109,45 +119,6 @@ const activeMealModal = ref<{
   period: 'lunch' | 'dinner'
   meal: SlotMeal
 } | null>(null)
-const dragSource = ref<{
-  date: string
-  period: 'lunch' | 'dinner'
-  meal: SlotMeal
-} | null>(null)
-const dragOverKey = ref<string | null>(null)
-const justDroppedKey = ref<string | null>(null)
-const justSwappedKey = ref<string | null>(null)
-const suppressClick = ref(false)
-const floatingCard = ref<{
-  x: number
-  y: number
-  width: number
-  offsetX: number
-  offsetY: number
-  angle: number
-  settling: boolean
-  meal: SlotMeal
-  period: 'lunch' | 'dinner'
-} | null>(null)
-
-let pendingDrag: {
-  pointerId: number
-  startX: number
-  startY: number
-  offsetX: number
-  offsetY: number
-  width: number
-  date: string
-  period: 'lunch' | 'dinner'
-  meal: SlotMeal
-} | null = null
-let dragRafId: number | null = null
-let lastFrameTime = 0
-let lastPointerX = 0
-let pointerTargetX = 0
-let pointerTargetY = 0
-let pendulumAngle = 0
-let pendulumVel = 0
 
 const cycles = computed(() => range.value?.deliveryCycles ?? [])
 const currentCycle = computed(
@@ -162,6 +133,8 @@ const currentCycle = computed(
       ) ??
     cycles.value[0],
 )
+const daysByDate = computed(() => new Map((range.value?.days ?? []).map((day) => [day.date, day])))
+const availableSelections = computed(() => selections.value.filter((item) => item.isAvailable))
 const orderedSlots = computed(() => {
   if (!currentCycle.value) return []
   const result: Array<{
@@ -171,14 +144,14 @@ const orderedSlots = computed(() => {
   }> = []
   for (let offset = 0; offset <= 7; offset += 1) {
     const date = addCivilDays(currentCycle.value.deliveryDate, offset)
-    const day = range.value?.days.find((item) => item.date === date)
+    const day = daysByDate.value.get(date)
     if (!day) continue
     if (offset !== 0) result.push({ date, period: 'lunch', meal: day.lunch.meal })
     if (offset !== 7) result.push({ date, period: 'dinner', meal: day.dinner.meal })
   }
   return result
 })
-const selectedDay = computed(() => range.value?.days.find((day) => day.date === selectedDate.value))
+const selectedDay = computed(() => daysByDate.value.get(selectedDate.value))
 const monthDates = computed(() => monthGridDates(selectedDate.value))
 const monthName = computed(() =>
   new Intl.DateTimeFormat('fr-FR', {
@@ -191,12 +164,18 @@ const monthName = computed(() =>
 function rangeAround(date: string) {
   return { from: addCivilDays(date, -31), to: addCivilDays(date, 31) }
 }
-async function load(silent = false) {
+async function load(silent = false, forceFresh = false) {
   if (!silent && !range.value) loading.value = true
   error.value = ''
   try {
     const bounds = rangeAround(selectedDate.value)
-    range.value = await getPlanning(bounds.from, bounds.to)
+    if (forceFresh) {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.planningAll })
+    }
+    range.value = await queryClient.fetchQuery({
+      queryKey: queryKeys.planning(bounds.from, bounds.to),
+      queryFn: () => getPlanning(bounds.from, bounds.to),
+    })
     const requestedCycle =
       typeof route.query['cycle'] === 'string'
         ? cycles.value.find((cycle) => cycle.id === route.query['cycle'])
@@ -229,9 +208,15 @@ async function load(silent = false) {
     loading.value = false
   }
 }
-async function loadSelections(id: string) {
+async function loadSelections(id: string, forceFresh = false) {
   try {
-    const result = await getDelivery(id)
+    if (forceFresh) {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.delivery(id) })
+    }
+    const result = await queryClient.fetchQuery({
+      queryKey: queryKeys.delivery(id),
+      queryFn: () => getDelivery(id),
+    })
     selections.value = result.selections.map((item) => ({
       id: item.id,
       title: item.title,
@@ -285,37 +270,58 @@ function parseSteps(value: DeliverySnapshot['stepsJson']) {
     return []
   }
 }
+const selectionsById = computed(() => new Map(selections.value.map((s) => [s.id, s])))
+const homeRecipesById = computed(() => new Map(homeRecipes.value.map((r) => [r.id, r])))
+
 function selectionFor(meal: SlotMeal | null | undefined) {
-  return meal?.selectionId
-    ? selections.value.find((selection) => selection.id === meal.selectionId)
-    : undefined
+  return meal?.selectionId ? selectionsById.value.get(meal.selectionId) : undefined
 }
-function mealMetrics(meal: SlotMeal | null | undefined) {
+function computeMealMetrics(meal: SlotMeal | null | undefined) {
   if (!meal || meal.category === 'restaurant') return null
   if (meal.category === 'quitoque') {
     const sel = selectionFor(meal)
     return {
-      totalMinutes: sel?.totalMinutes ?? null,
-      nutriScore: sel?.nutriScore ?? null,
-      carbonScore: sel?.carbonScore ?? null,
+      sourceLabel: 'Quitoque',
+      description: sel?.description ?? meal.description ?? null,
+      totalMinutes: sel?.totalMinutes ?? meal.totalMinutes ?? null,
+      caloriesKcal: sel?.nutrition?.caloriesKcal ?? meal.caloriesKcal ?? null,
+      nutriScore: sel?.nutriScore ?? meal.nutriScore ?? null,
+      carbonScore: sel?.carbonScore ?? meal.carbonScore ?? null,
     }
   }
-  const home = meal.recipeId
-    ? homeRecipes.value.find((recipe) => recipe.id === meal.recipeId)
-    : undefined
+  const home = meal.recipeId ? homeRecipesById.value.get(meal.recipeId) : undefined
   return {
-    totalMinutes: home?.totalMinutes ?? null,
-    nutriScore: home?.nutriScore ?? null,
-    carbonScore: home?.carbonScore ?? null,
+    sourceLabel: home?.sourceLabel ?? 'Maison',
+    description: home?.description ?? meal.description ?? null,
+    totalMinutes: home?.totalMinutes ?? meal.totalMinutes ?? null,
+    caloriesKcal: home?.caloriesKcal ?? meal.caloriesKcal ?? null,
+    nutriScore: home?.nutriScore ?? meal.nutriScore ?? null,
+    carbonScore: home?.carbonScore ?? meal.carbonScore ?? null,
   }
 }
+
+const mealMetricsById = computed(() => {
+  const map = new Map<string, ReturnType<typeof computeMealMetrics>>()
+  for (const day of range.value?.days ?? []) {
+    for (const meal of [day.lunch.meal, day.dinner.meal]) {
+      if (meal && !map.has(meal.id)) {
+        map.set(meal.id, computeMealMetrics(meal))
+      }
+    }
+  }
+  return map
+})
+
+function mealMetrics(meal: SlotMeal | null | undefined) {
+  if (!meal) return null
+  return mealMetricsById.value.get(meal.id) ?? computeMealMetrics(meal)
+}
+
 const activeMealSelection = computed(() =>
   activeMealModal.value ? selectionFor(activeMealModal.value.meal) : undefined,
 )
-const activeMealSteps = computed(() =>
-  (activeMealSelection.value?.steps ?? []).map((step, index) =>
-    parseStructuredStep(step, index + 1),
-  ),
+const activeModalMetrics = computed(() =>
+  activeMealModal.value ? mealMetrics(activeMealModal.value.meal) : null,
 )
 
 function parseSelectionNutrition(raw: string | null | undefined): RecipeNutrition | null {
@@ -345,17 +351,16 @@ async function loadHomeRecipes() {
           sort: 'title',
         }),
     })
-    homeRecipes.value = result.items.map((item) => {
-      const nutri = item.metrics.find((m) => m.key === 'nutriScore')
-      const carbon = item.metrics.find((m) => m.key === 'carbonScore')
-      return {
-        id: item.id,
-        title: item.title,
-        totalMinutes: item.totalMinutes ?? null,
-        nutriScore: nutri?.value ?? null,
-        carbonScore: carbon?.value ?? null,
-      }
-    })
+    homeRecipes.value = result.items.map((item) => ({
+      id: item.id,
+      title: item.title,
+      sourceLabel: resolveRecipeSourceLabel(item),
+      description: item.description ?? null,
+      totalMinutes: item.totalMinutes ?? null,
+      caloriesKcal: item.nutrition?.caloriesKcal ?? null,
+      nutriScore: recipeMetricValue(item.metrics, 'nutriScore'),
+      carbonScore: recipeMetricValue(item.metrics, 'carbonScore'),
+    }))
   } catch {
     homeRecipes.value = []
   }
@@ -439,6 +444,15 @@ function labelDate(
 function slotKey(date: string, period: string) {
   return `${date}:${period}`
 }
+function cycleIdForDate(date: string): string | null {
+  const matched =
+    cycles.value
+      .toReversed()
+      .find((cycle) => cycle.deliveryDate <= date && addCivilDays(cycle.deliveryDate, 7) >= date) ??
+    currentCycle.value
+  return matched?.id ?? null
+}
+
 function canUseQuitoque(date: string, period: 'lunch' | 'dinner') {
   return Boolean(
     currentCycle.value &&
@@ -446,10 +460,6 @@ function canUseQuitoque(date: string, period: 'lunch' | 'dinner') {
       (slot) => slot.date === date && slot.period === period,
     ),
   )
-}
-function mealsForDate(date: string): SlotMeal[] {
-  const day = range.value?.days.find((item) => item.date === date)
-  return [day?.lunch.meal, day?.dinner.meal].filter((meal): meal is SlotMeal => Boolean(meal))
 }
 function formFor(date: string, period: 'lunch' | 'dinner') {
   const key = slotKey(date, period)
@@ -468,7 +478,7 @@ async function syncOrders() {
   try {
     const result = await syncDeliveries()
     status.value = `${result.added + result.updated} livraison(s) actualisée(s).${result.invalidDeliveryDates ? ` ${result.invalidDeliveryDates} date(s) non reconnue(s).` : ''}`
-    await load()
+    await load(false, true)
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'Synchronisation impossible.'
   } finally {
@@ -483,15 +493,15 @@ async function syncSelectedRecipes() {
   try {
     const result = await syncDeliveryRecipes(currentCycle.value.id)
     status.value = `${result.added} ajoutée(s), ${result.updated} mise(s) à jour, ${result.unavailable} indisponible(s).`
-    await loadSelections(currentCycle.value.id)
-    await load()
+    await loadSelections(currentCycle.value.id, true)
+    await load(false, true)
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'Sélection indisponible.'
   } finally {
     busy.value = false
   }
 }
-async function distribute() {
+async function distribute(confirmed = false) {
   if (!currentCycle.value) return
   busy.value = true
   error.value = ''
@@ -499,23 +509,15 @@ async function distribute() {
   try {
     let result
     try {
-      result = await distributeDelivery(currentCycle.value.id, confirmDistribution.value)
+      result = await distributeDelivery(currentCycle.value.id, confirmed)
     } catch (cause) {
       if ((cause as Error & { status?: number }).status !== 409) throw cause
-      if (
-        !window.confirm(
-          'Une répartition automatique existe déjà. La remplacer en conservant les choix manuels ?',
-        )
-      ) {
-        status.value = 'Répartition annulée.'
-        return
-      }
       confirmDistribution.value = true
-      result = await distributeDelivery(currentCycle.value.id, true)
+      return
     }
     confirmDistribution.value = false
     status.value = `${result.assigned} repas réparti(s), ${result.leftEmpty} créneau(x) vide(s), ${result.preserved} choix manuel(s) conservé(s), ${result.unassigned} non affecté(s).`
-    await load()
+    await load(false, true)
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'Répartition impossible.'
   } finally {
@@ -550,7 +552,7 @@ async function saveSlot(date: string, period: 'lunch' | 'dinner') {
         notes: form.notes,
       })
     status.value = 'Repas enregistré.'
-    await load()
+    await load(false, true)
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'Enregistrement impossible.'
   } finally {
@@ -563,7 +565,7 @@ async function clearSlot(date: string, period: 'lunch' | 'dinner') {
     if (activeMealModal.value?.date === date && activeMealModal.value?.period === period)
       activeMealModal.value = null
     status.value = 'Créneau libéré.'
-    await load()
+    await load(false, true)
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'Suppression impossible.'
   }
@@ -579,108 +581,6 @@ function openMealModal(slot: { date: string; period: 'lunch' | 'dinner'; meal: S
 function closeMealModal() {
   activeMealModal.value = null
 }
-function handleGlobalKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape' && activeMealModal.value) closeMealModal()
-}
-onMounted(() => {
-  window.addEventListener('keydown', handleGlobalKeydown)
-})
-onBeforeUnmount(() => {
-  window.removeEventListener('keydown', handleGlobalKeydown)
-  stopPointerDrag()
-})
-
-function prefersReducedMotion() {
-  return (
-    typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  )
-}
-
-function stepPendulum(now: number) {
-  if (!floatingCard.value) {
-    dragRafId = null
-    return
-  }
-  const dt = Math.min((now - lastFrameTime) / 1000, 0.05)
-  lastFrameTime = now
-
-  if (prefersReducedMotion()) {
-    pendulumAngle = 0
-    pendulumVel = 0
-  } else if (dt > 0) {
-    const vx = (pointerTargetX - lastPointerX) / dt
-    lastPointerX = pointerTargetX
-
-    // Damped pendulum physics driven by horizontal cursor velocity
-    const stiffness = 210
-    const damping = 10.5
-    const impulse = Math.max(-2400, Math.min(2400, vx)) * -0.14
-    const angularAcc = -stiffness * pendulumAngle - damping * pendulumVel + impulse
-    pendulumVel += angularAcc * dt
-    pendulumAngle += pendulumVel * dt
-    pendulumAngle = Math.max(-24, Math.min(24, pendulumAngle))
-  }
-
-  floatingCard.value = {
-    ...floatingCard.value,
-    x: pointerTargetX - floatingCard.value.offsetX,
-    y: pointerTargetY - floatingCard.value.offsetY,
-    angle: pendulumAngle,
-  }
-
-  dragRafId = window.requestAnimationFrame(stepPendulum)
-}
-
-function hitTestSlot(clientX: number, clientY: number) {
-  const elements = document.elementsFromPoint(clientX, clientY)
-  for (const el of elements) {
-    const slotEl = (el as HTMLElement).closest?.('[data-slot-key]') as HTMLElement | null
-    if (slotEl?.dataset['slotKey']) return slotEl.dataset['slotKey']
-  }
-  return null
-}
-
-function handlePointerMove(event: PointerEvent) {
-  pointerTargetX = event.clientX
-  pointerTargetY = event.clientY
-
-  if (pendingDrag && !dragSource.value) {
-    const dx = event.clientX - pendingDrag.startX
-    const dy = event.clientY - pendingDrag.startY
-    if (Math.hypot(dx, dy) < 6) return
-
-    dragSource.value = {
-      date: pendingDrag.date,
-      period: pendingDrag.period,
-      meal: pendingDrag.meal,
-    }
-    suppressClick.value = true
-    pendulumAngle = 0
-    pendulumVel = prefersReducedMotion() ? 0 : 65
-    lastPointerX = event.clientX
-    lastFrameTime = performance.now()
-    floatingCard.value = {
-      x: event.clientX - pendingDrag.offsetX,
-      y: event.clientY - pendingDrag.offsetY,
-      width: pendingDrag.width,
-      offsetX: pendingDrag.offsetX,
-      offsetY: pendingDrag.offsetY,
-      angle: 0,
-      settling: false,
-      meal: pendingDrag.meal,
-      period: pendingDrag.period,
-    }
-    document.body.style.userSelect = 'none'
-    dragRafId = window.requestAnimationFrame(stepPendulum)
-  }
-
-  if (dragSource.value) {
-    const hovered = hitTestSlot(event.clientX, event.clientY)
-    const sourceKey = slotKey(dragSource.value.date, dragSource.value.period)
-    dragOverKey.value = hovered && hovered !== sourceKey ? hovered : null
-  }
-}
-
 function swapMealsInRange(
   sourceDate: string,
   sourcePeriod: 'lunch' | 'dinner',
@@ -698,116 +598,36 @@ function swapMealsInRange(
   return Boolean(targetMeal)
 }
 
-async function handlePointerUp(event: PointerEvent) {
-  const source = dragSource.value
-  const targetKey = source ? hitTestSlot(event.clientX, event.clientY) : null
-  const currentFloating = floatingCard.value
-
-  if (!source || !targetKey || targetKey === slotKey(source.date, source.period)) {
-    stopPointerDrag()
-    return
-  }
-
-  const sourceKey = slotKey(source.date, source.period)
-  const [targetDate, targetPeriod] = targetKey.split(':') as [string, 'lunch' | 'dinner']
-
-  window.removeEventListener('pointermove', handlePointerMove)
-  window.removeEventListener('pointerup', handlePointerUp)
-  window.removeEventListener('pointercancel', stopPointerDrag)
-  if (dragRafId !== null) {
-    window.cancelAnimationFrame(dragRafId)
-    dragRafId = null
-  }
-  pendingDrag = null
-  dragSource.value = null
-  dragOverKey.value = null
-  document.body.style.userSelect = ''
-  window.setTimeout(() => {
-    suppressClick.value = false
-  }, 60)
-
-  const wasSwap = swapMealsInRange(source.date, source.period, targetDate, targetPeriod)
-
-  const targetEl = document.querySelector<HTMLElement>(`[data-slot-key="${targetKey}"]`)
-  if (currentFloating && targetEl && !prefersReducedMotion()) {
-    const targetRect = targetEl.getBoundingClientRect()
-    floatingCard.value = {
-      ...currentFloating,
-      x: targetRect.left + 8,
-      y: targetRect.top + 36,
-      width: Math.max(180, targetRect.width - 16),
-      angle: 0,
-      settling: true,
-    }
-    window.setTimeout(() => {
-      floatingCard.value = null
-    }, 230)
-  } else {
-    floatingCard.value = null
-  }
-
-  justDroppedKey.value = targetKey
-  if (wasSwap) justSwappedKey.value = sourceKey
-  window.setTimeout(() => {
-    if (justDroppedKey.value === targetKey) justDroppedKey.value = null
-    if (justSwappedKey.value === sourceKey) justSwappedKey.value = null
-  }, 520)
-
+async function performSlotMove(
+  sourceDate: string,
+  sourcePeriod: 'lunch' | 'dinner',
+  targetDate: string,
+  targetPeriod: 'lunch' | 'dinner',
+): Promise<boolean> {
+  const wasSwap = swapMealsInRange(sourceDate, sourcePeriod, targetDate, targetPeriod)
   try {
-    await movePlanningSlot(source.date, source.period, targetDate, targetPeriod)
+    await movePlanningSlot(sourceDate, sourcePeriod, targetDate, targetPeriod)
     status.value = wasSwap ? 'Repas échangés.' : 'Repas déplacé.'
+    await queryClient.invalidateQueries({ queryKey: queryKeys.planningAll })
     await load(true)
   } catch (cause) {
-    swapMealsInRange(targetDate, targetPeriod, source.date, source.period)
+    swapMealsInRange(targetDate, targetPeriod, sourceDate, sourcePeriod)
     error.value = cause instanceof Error ? cause.message : 'Déplacement impossible.'
   }
+  return wasSwap
 }
 
-function stopPointerDrag() {
-  window.removeEventListener('pointermove', handlePointerMove)
-  window.removeEventListener('pointerup', handlePointerUp)
-  window.removeEventListener('pointercancel', stopPointerDrag)
-  if (dragRafId !== null) {
-    window.cancelAnimationFrame(dragRafId)
-    dragRafId = null
-  }
-  const wasDragging = Boolean(dragSource.value)
-  pendingDrag = null
-  dragSource.value = null
-  dragOverKey.value = null
-  floatingCard.value = null
-  document.body.style.userSelect = ''
-  if (wasDragging) {
-    window.setTimeout(() => {
-      suppressClick.value = false
-    }, 60)
-  }
-}
-
-function onMealPointerDown(
-  event: PointerEvent,
-  slot: { date: string; period: 'lunch' | 'dinner'; meal: SlotMeal | null },
-) {
-  if (event.button !== 0 || !slot.meal) return
-  const target = event.currentTarget as HTMLElement
-  const rect = target.getBoundingClientRect()
-  pendingDrag = {
-    pointerId: event.pointerId,
-    startX: event.clientX,
-    startY: event.clientY,
-    offsetX: event.clientX - rect.left,
-    offsetY: Math.min(event.clientY - rect.top, 44),
-    width: rect.width,
-    date: slot.date,
-    period: slot.period,
-    meal: slot.meal,
-  }
-  pointerTargetX = event.clientX
-  pointerTargetY = event.clientY
-  window.addEventListener('pointermove', handlePointerMove)
-  window.addEventListener('pointerup', handlePointerUp)
-  window.addEventListener('pointercancel', stopPointerDrag)
-}
+const {
+  dragSource,
+  dragOverKey,
+  justDroppedKey,
+  justSwappedKey,
+  suppressClick,
+  floatingCard,
+  onMealPointerDown,
+} = useSlotDrag({
+  onDropSlot: performSlotMove,
+})
 </script>
 
 <template>
@@ -860,7 +680,7 @@ function onMealPointerDown(
           <Button variant="secondary" :loading="busy" @click="syncSelectedRecipes"
             >Synchroniser cette sélection</Button
           >
-          <Button :disabled="busy || !selections.length" @click="distribute"
+          <Button :disabled="busy || !selections.length" @click="distribute()"
             >Répartir les repas</Button
           >
           <RouterLink
@@ -934,64 +754,25 @@ function onMealPointerDown(
             </div>
             <div
               v-if="slot.meal"
-              class="planning__meal"
-              role="button"
-              tabindex="0"
-              :aria-label="`Consulter ${slot.meal.title}`"
-              @click="openMealModal(slot)"
-              @keydown.enter.prevent="openMealModal(slot)"
-              @keydown.space.prevent="openMealModal(slot)"
+              class="planning__meal-wrap"
               @pointerdown="onMealPointerDown($event, slot)"
             >
-              <div v-if="slot.meal.thumbnailUrl || slot.meal.imageUrl" class="planning__meal-media">
-                <img
-                  :src="slot.meal.thumbnailUrl || slot.meal.imageUrl || ''"
-                  :alt="''"
-                  loading="lazy"
-                  draggable="false"
-                />
-              </div>
-              <div class="planning__meal-body">
-                <div class="planning__meal-meta">
-                  <span
-                    class="planning__category-badge"
-                    :class="`planning__category-badge--${slot.meal.category}`"
-                    >{{
-                      slot.meal.category === 'quitoque'
-                        ? 'Quitoque'
-                        : slot.meal.category === 'home'
-                          ? 'Maison'
-                          : 'Restaurant'
-                    }}</span
-                  >
-                  <span class="planning__origin">{{
-                    slot.meal.origin === 'automatic' ? 'Répartition' : 'Choisi'
-                  }}</span>
-                </div>
-                <strong class="planning__meal-title">{{ slot.meal.title }}</strong>
-                <div
-                  v-if="mealMetrics(slot.meal)"
-                  class="planning__metrics"
-                  aria-label="Informations recette"
-                >
-                  <span
-                    class="planning__metric"
-                    :class="{
-                      'planning__metric--muted': !mealMetrics(slot.meal)?.totalMinutes,
-                    }"
-                    ><Clock3 :size="13" aria-hidden="true" />{{
-                      mealMetrics(slot.meal)?.totalMinutes
-                        ? `${mealMetrics(slot.meal)?.totalMinutes} min`
-                        : 'Durée n/d'
-                    }}</span
-                  >
-                  <ScoreBadge kind="nutri" :grade="mealMetrics(slot.meal)?.nutriScore" compact />
-                  <ScoreBadge kind="eco" :grade="mealMetrics(slot.meal)?.carbonScore" compact />
-                </div>
-                <p v-if="slot.meal.notes" class="planning__meal-notes">
-                  {{ slot.meal.notes }}
-                </p>
-              </div>
+              <RecipeCard
+                class="planning__recipe-card"
+                :title="slot.meal.title"
+                :source-label="
+                  slot.meal.category === 'restaurant'
+                    ? 'Restaurant'
+                    : (mealMetrics(slot.meal)?.sourceLabel ?? 'Maison')
+                "
+                :image-url="slot.meal.thumbnailUrl || slot.meal.imageUrl"
+                :description="slot.meal.notes || mealMetrics(slot.meal)?.description || null"
+                :total-minutes="mealMetrics(slot.meal)?.totalMinutes ?? null"
+                :calories-kcal="mealMetrics(slot.meal)?.caloriesKcal ?? null"
+                :nutri-score="mealMetrics(slot.meal)?.nutriScore ?? null"
+                :carbon-score="mealMetrics(slot.meal)?.carbonScore ?? null"
+                @open="openMealModal(slot)"
+              />
             </div>
             <details v-else class="planning__assign">
               <summary>
@@ -1021,11 +802,7 @@ function onMealPointerDown(
                   aria-label="Recette Quitoque"
                 >
                   <option value="">Choisir une recette</option>
-                  <option
-                    v-for="item in selections.filter((item) => item.isAvailable)"
-                    :key="item.id"
-                    :value="item.id"
-                  >
+                  <option v-for="item in availableSelections" :key="item.id" :value="item.id">
                     {{ item.title }}
                   </option>
                 </select>
@@ -1125,6 +902,32 @@ function onMealPointerDown(
             <p v-else>Étapes non disponibles.</p>
           </details>
         </div>
+        <RouterLink
+          v-if="
+            selectedDay?.[period].meal?.category === 'home' && selectedDay[period].meal.recipeId
+          "
+          class="planning__cook-link"
+          :to="{ name: 'cooking', query: { recipe: selectedDay[period].meal.recipeId } }"
+        >
+          <ChefHat :size="14" aria-hidden="true" /> Mode cuisine
+        </RouterLink>
+        <RouterLink
+          v-else-if="
+            selectedDay?.[period].meal?.category === 'quitoque' &&
+            selectedDay[period].meal.selectionId &&
+            cycleIdForDate(selectedDate)
+          "
+          class="planning__cook-link"
+          :to="{
+            name: 'cooking',
+            query: {
+              cycle: cycleIdForDate(selectedDate)!,
+              selection: selectedDay[period].meal.selectionId,
+            },
+          }"
+        >
+          <ChefHat :size="14" aria-hidden="true" /> Mode cuisine
+        </RouterLink>
         <button v-if="selectedDay?.[period].meal" @click="clearSlot(selectedDate, period)">
           Vider</button
         ><button @click="changeView('week')">Ouvrir le cycle de livraison</button>
@@ -1190,40 +993,14 @@ function onMealPointerDown(
         </details>
       </article>
     </section>
-    <section v-else class="planning__month" aria-label="Calendrier mensuel">
-      <div class="planning__weekdays">
-        <span v-for="day in ['Lun.', 'Mar.', 'Mer.', 'Jeu.', 'Ven.', 'Sam.', 'Dim.']" :key="day">{{
-          day
-        }}</span>
-      </div>
-      <div class="planning__month-grid">
-        <button
-          v-for="date in monthDates"
-          :key="date"
-          :aria-label="`Voir ${labelDate(date)}`"
-          :class="{
-            'is-outside': date.slice(0, 7) !== selectedDate.slice(0, 7),
-            'is-selected': date === selectedDate,
-            'is-delivery': range?.days.find((day) => day.date === date)?.isDeliveryDay,
-          }"
-          @click="goDate(date, 'day')"
-        >
-          <strong>{{ Number(date.slice(-2)) }}</strong
-          ><span
-            v-for="meal in mealsForDate(date)"
-            :key="meal.id"
-            :class="`planning__month-meal--${meal.category}`"
-            >{{
-              meal.category === 'quitoque'
-                ? 'Quitoque'
-                : meal.category === 'home'
-                  ? 'Maison'
-                  : 'Restaurant'
-            }}</span
-          ><span v-if="range?.days.find((day) => day.date === date)?.isDeliveryDay">Livraison</span>
-        </button>
-      </div>
-    </section>
+    <PlanningMonthGrid
+      v-else
+      :month-dates="monthDates"
+      :selected-date="selectedDate"
+      :days-by-date="daysByDate"
+      :label-date="labelDate"
+      @select-date="(date) => goDate(date, 'day')"
+    />
     <Teleport to="body">
       <div
         v-if="floatingCard"
@@ -1252,158 +1029,80 @@ function onMealPointerDown(
           <strong>{{ floatingCard.meal.title }}</strong>
         </div>
       </div>
-      <div
-        v-if="activeMealModal"
-        class="planning-modal__backdrop"
-        role="presentation"
-        @click.self="closeMealModal"
-      >
-        <div
-          class="planning-modal"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="planning-modal-title"
-        >
-          <header class="planning-modal__header">
-            <div class="planning-modal__header-meta">
-              <span class="planning-modal__date"
-                >{{ labelDate(activeMealModal.date) }} ·
-                {{ activeMealModal.period === 'lunch' ? 'Déjeuner' : 'Dîner' }}</span
-              >
-              <h2 id="planning-modal-title">
-                {{ activeMealModal.meal.title }}
-              </h2>
-            </div>
-            <button
-              class="planning-modal__close"
-              aria-label="Fermer la recette"
-              @click="closeMealModal"
-            >
-              <X :size="20" aria-hidden="true" />
-            </button>
-          </header>
-          <div class="planning-modal__body">
-            <div
-              v-if="activeMealModal.meal.imageUrl || activeMealModal.meal.thumbnailUrl"
-              class="planning-modal__media"
-            >
-              <img
-                :src="activeMealModal.meal.imageUrl || activeMealModal.meal.thumbnailUrl || ''"
-                :alt="`Photographie de ${activeMealModal.meal.title}`"
-              />
-            </div>
-            <div class="planning-modal__badges">
-              <span
-                class="planning__category-badge"
-                :class="`planning__category-badge--${activeMealModal.meal.category}`"
-                >{{
-                  activeMealModal.meal.category === 'quitoque'
-                    ? 'Quitoque'
-                    : activeMealModal.meal.category === 'home'
-                      ? 'Maison'
-                      : 'Restaurant'
-                }}</span
-              >
-              <span class="planning__origin">{{
-                activeMealModal.meal.origin === 'automatic' ? 'Répartition' : 'Choisi'
-              }}</span>
-              <template v-if="mealMetrics(activeMealModal.meal)">
-                <span class="planning__metric"
-                  ><Clock3 :size="13" aria-hidden="true" />{{
-                    mealMetrics(activeMealModal.meal)?.totalMinutes
-                      ? `${mealMetrics(activeMealModal.meal)?.totalMinutes} min`
-                      : 'Durée n/d'
-                  }}</span
-                >
-                <ScoreBadge kind="nutri" :grade="mealMetrics(activeMealModal.meal)?.nutriScore" />
-                <ScoreBadge kind="eco" :grade="mealMetrics(activeMealModal.meal)?.carbonScore" />
-              </template>
-            </div>
-            <p v-if="activeMealModal.meal.notes" class="planning-modal__notes">
-              {{ activeMealModal.meal.notes }}
-            </p>
-            <template v-if="activeMealModal.meal.category === 'quitoque'">
-              <p v-if="activeMealSelection?.description" class="planning-modal__description">
-                {{ activeMealSelection.description }}
-              </p>
-              <NutritionPanel
-                :servings="activeMealSelection?.servings ?? null"
-                :nutrition="activeMealSelection?.nutrition ?? null"
-              />
-              <section class="planning-modal__section">
-                <h3>Ingrédients</h3>
-                <ul
-                  v-if="activeMealSelection?.ingredients.length"
-                  class="planning-modal__ingredients"
-                >
-                  <li
-                    v-for="(ingredient, index) in activeMealSelection.ingredients"
-                    :key="`${index}-${ingredient.name}`"
-                  >
-                    <strong>{{ ingredient.name }}</strong>
-                    <span v-if="ingredient.quantity">
-                      · {{ ingredient.quantity }} {{ ingredient.unit }}</span
-                    >
-                    <span v-if="ingredient.notes"> · {{ ingredient.notes }}</span>
-                  </li>
-                </ul>
-                <p v-else>Ingrédients non disponibles.</p>
-              </section>
-              <section class="planning-modal__section">
-                <h3>Préparation</h3>
-                <ol v-if="activeMealSteps.length" class="planning-modal__steps">
-                  <li
-                    v-for="(step, index) in activeMealSteps"
-                    :key="`step-${index}`"
-                    class="planning-modal__step"
-                  >
-                    <strong v-if="step.title" class="planning-modal__step-title">
-                      {{ step.title }}
-                    </strong>
-                    <div class="planning-modal__step-lines">
-                      <p v-for="(line, lineIdx) in step.lines" :key="`line-${index}-${lineIdx}`">
-                        {{ line }}
-                      </p>
-                    </div>
-                  </li>
-                </ol>
-                <p v-else>Étapes non disponibles.</p>
-              </section>
-            </template>
-            <div
-              v-else-if="activeMealModal.meal.category === 'home' && activeMealModal.meal.recipeId"
-              class="planning-modal__link-wrap"
-            >
-              <RouterLink
-                class="planning-modal__recipe-link"
-                :to="`/recettes/${activeMealModal.meal.recipeId}`"
-                @click="closeMealModal"
-              >
-                Ouvrir la fiche recette complète
-              </RouterLink>
-            </div>
-          </div>
-          <footer class="planning-modal__footer">
-            <Button
-              variant="secondary"
-              @click="clearSlot(activeMealModal.date, activeMealModal.period)"
-              >Retirer du planning</Button
-            >
-            <Button @click="closeMealModal">Fermer</Button>
-          </footer>
-        </div>
-      </div>
     </Teleport>
+
+    <PlanningMealModal
+      v-if="activeMealModal"
+      :date="activeMealModal.date"
+      :period="activeMealModal.period"
+      :date-label="labelDate(activeMealModal.date)"
+      :cycle-id="cycleIdForDate(activeMealModal.date)"
+      :meal="activeMealModal.meal"
+      :metrics="activeModalMetrics"
+      :selection="activeMealSelection"
+      @close="closeMealModal"
+      @clear="clearSlot"
+    />
+
+    <ModalDialog
+      v-if="confirmDistribution"
+      v-model:open="confirmDistribution"
+      title="Remplacer la répartition automatique ?"
+      badge="Confirmation"
+      size="md"
+    >
+      <p>
+        Une répartition automatique existe déjà sur ce cycle. Voulez-vous la recalculer tout en
+        conservant vos choix manuels ?
+      </p>
+      <template #footer>
+        <Button
+          variant="secondary"
+          :disabled="busy"
+          @click="
+            () => {
+              confirmDistribution = false
+              status = 'Répartition annulée.'
+            }
+          "
+        >
+          Annuler
+        </Button>
+        <Button :loading="busy" @click="distribute(true)">Remplacer la répartition</Button>
+      </template>
+    </ModalDialog>
   </section>
 </template>
 
-<style scoped lang="scss">
+<style scoped>
+@charset "UTF-8";
 .planning {
   color: var(--q-text);
   display: flex;
   flex-direction: column;
   gap: var(--q-space-3);
 }
+
+.planning__cook-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--q-space-2);
+  width: fit-content;
+  min-height: var(--q-touch-target);
+  padding: 0 var(--q-space-3);
+  border-radius: var(--q-radius-control);
+  background: var(--q-forest);
+  color: var(--q-peach);
+  font-family: var(--q-font-display);
+  font-size: var(--q-type-label);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.planning__cook-link:hover {
+  background: var(--q-leaf);
+}
+
 .planning__bar {
   display: flex;
   align-items: center;
@@ -1415,6 +1114,7 @@ function onMealPointerDown(
   border: 1px solid var(--q-leaf);
   border-radius: var(--q-radius-card);
 }
+
 .planning__bar-left,
 .planning__bar-actions,
 .planning__navigate {
@@ -1423,6 +1123,7 @@ function onMealPointerDown(
   flex-wrap: wrap;
   gap: var(--q-space-2);
 }
+
 .planning__views {
   display: inline-flex;
   padding: 2px;
@@ -1430,6 +1131,7 @@ function onMealPointerDown(
   background: var(--q-sage);
   border-radius: var(--q-radius-control);
 }
+
 .planning__views button {
   min-height: 36px;
   padding: 0 var(--q-space-3);
@@ -1444,13 +1146,16 @@ function onMealPointerDown(
     background-color var(--q-duration-fast) var(--q-ease-standard),
     color var(--q-duration-fast) var(--q-ease-standard);
 }
+
 .planning__views button:hover:not([aria-pressed='true']) {
   background: var(--q-shoot);
 }
+
 .planning__views button[aria-pressed='true'] {
   background: var(--q-forest);
   color: var(--q-peach);
 }
+
 .planning__navigate button {
   display: grid;
   place-items: center;
@@ -1463,21 +1168,25 @@ function onMealPointerDown(
   cursor: pointer;
   transition: background-color var(--q-duration-fast) var(--q-ease-standard);
 }
+
 .planning__navigate button:hover {
   background: var(--q-shoot);
 }
+
 .planning__cycle-select {
   min-height: 36px;
   padding: 0.35rem 0.65rem;
   font-weight: 600;
   font-size: var(--q-type-label);
 }
+
 .planning__period-label {
   padding-inline: var(--q-space-2);
   font-family: var(--q-font-display);
   font-weight: 700;
   text-transform: capitalize;
 }
+
 .planning__count {
   padding: 0.25rem 0.55rem;
   border-radius: var(--q-radius-control);
@@ -1487,12 +1196,14 @@ function onMealPointerDown(
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
+
 .planning__bar-actions :deep(button) {
   min-height: 38px;
   padding-block: 0.4rem;
   padding-inline: 0.75rem;
   font-size: var(--q-type-label);
 }
+
 .planning__prefs-link {
   display: inline-flex;
   align-items: center;
@@ -1507,32 +1218,35 @@ function onMealPointerDown(
   font-size: var(--q-type-label);
   font-weight: 700;
   text-decoration: none;
-
-  &:hover {
-    background: var(--q-shoot);
-  }
-
-  &:focus-visible {
-    outline: 3px solid var(--q-focus);
-    outline-offset: 2px;
-  }
 }
+.planning__prefs-link:hover {
+  background: var(--q-shoot);
+}
+.planning__prefs-link:focus-visible {
+  outline: 3px solid var(--q-focus);
+  outline-offset: 2px;
+}
+
 .planning__day-slot {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--q-space-4);
 }
+
 .planning h1 {
   font: 700 var(--q-type-h1)/var(--q-line-heading) var(--q-font-display);
   margin: 0;
 }
+
 .planning h2 {
   font: 700 var(--q-type-h3)/var(--q-line-heading) var(--q-font-display);
 }
+
 .planning__note {
   color: var(--q-forest);
 }
+
 .planning select,
 .planning input,
 .planning textarea {
@@ -1545,10 +1259,12 @@ function onMealPointerDown(
   border-radius: var(--q-radius-control);
   font-size: var(--q-type-label);
 }
+
 .planning textarea {
   min-height: 4.5rem;
   resize: vertical;
 }
+
 .planning__slots {
   list-style: none;
   padding: var(--q-space-3);
@@ -1564,62 +1280,77 @@ function onMealPointerDown(
   overflow-x: auto;
   align-items: stretch;
 }
+
 .planning__slot:nth-child(1) {
   grid-column: 1;
   grid-row: 2;
 }
+
 .planning__slot:nth-child(2) {
   grid-column: 2;
   grid-row: 1;
 }
+
 .planning__slot:nth-child(3) {
   grid-column: 2;
   grid-row: 2;
 }
+
 .planning__slot:nth-child(4) {
   grid-column: 3;
   grid-row: 1;
 }
+
 .planning__slot:nth-child(5) {
   grid-column: 3;
   grid-row: 2;
 }
+
 .planning__slot:nth-child(6) {
   grid-column: 4;
   grid-row: 1;
 }
+
 .planning__slot:nth-child(7) {
   grid-column: 4;
   grid-row: 2;
 }
+
 .planning__slot:nth-child(8) {
   grid-column: 5;
   grid-row: 1;
 }
+
 .planning__slot:nth-child(9) {
   grid-column: 5;
   grid-row: 2;
 }
+
 .planning__slot:nth-child(10) {
   grid-column: 6;
   grid-row: 1;
 }
+
 .planning__slot:nth-child(11) {
   grid-column: 6;
   grid-row: 2;
 }
+
 .planning__slot:nth-child(12) {
   grid-column: 7;
   grid-row: 1;
 }
+
 .planning__slot:nth-child(13) {
   grid-column: 7;
   grid-row: 2;
 }
+
 .planning__slot:nth-child(14) {
   grid-column: 8;
   grid-row: 1;
 }
+
 .planning__slot {
   min-width: 0;
   display: flex;
@@ -1632,19 +1363,23 @@ function onMealPointerDown(
     border-color var(--q-duration-fast) var(--q-ease-standard),
     transform var(--q-duration-fast) var(--q-ease-standard);
 }
+
 .planning__slot--day-start {
   border-bottom: 0;
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
 }
+
 .planning__slot--day-continue {
   border-top: 1px dashed var(--q-leaf);
   border-top-left-radius: 0;
   border-top-right-radius: 0;
 }
+
 .planning__slot:hover {
   border-color: var(--q-forest);
 }
+
 .planning__day-banner {
   display: flex;
   align-items: baseline;
@@ -1655,17 +1390,20 @@ function onMealPointerDown(
   font-family: var(--q-font-display);
   font-variant-numeric: tabular-nums;
 }
+
 .planning__day-banner strong {
   font-size: 0.9375rem;
   font-weight: 750;
   text-transform: capitalize;
   letter-spacing: -0.015em;
 }
+
 .planning__day-banner span {
   font-size: var(--q-type-metadata);
   color: var(--q-shoot);
   font-weight: 600;
 }
+
 .planning__slot-subhead {
   display: flex;
   align-items: center;
@@ -1673,6 +1411,7 @@ function onMealPointerDown(
   gap: 0.5rem;
   padding: 0.4rem 0.75rem 0.3rem;
 }
+
 .planning__period-tag {
   display: inline-flex;
   align-items: center;
@@ -1682,14 +1421,17 @@ function onMealPointerDown(
   font-weight: 700;
   letter-spacing: 0.01em;
 }
+
 .planning__period-tag--lunch {
   background: var(--q-shoot);
   color: var(--q-forest);
 }
+
 .planning__period-tag--dinner {
   background: var(--q-coral);
   color: var(--q-forest);
 }
+
 .planning__clear {
   display: grid;
   place-items: center;
@@ -1702,27 +1444,33 @@ function onMealPointerDown(
   cursor: pointer;
   transition: background-color var(--q-duration-fast) var(--q-ease-standard);
 }
+
 .planning__clear:hover {
   background: var(--q-coral);
 }
+
 .planning__slot.is-dragging {
   opacity: 0.35;
   transform: scale(0.97);
   border-style: dashed;
 }
+
 .planning__slot.is-drop-target {
   background: var(--q-shoot);
   outline: 3px dashed var(--q-forest);
   outline-offset: -3px;
   transform: scale(1.015);
 }
+
 .planning__slot.is-just-dropped {
   animation: slot-land 480ms cubic-bezier(0.22, 1, 0.36, 1);
   z-index: 2;
 }
+
 .planning__slot.is-just-swapped {
   animation: slot-swap 420ms cubic-bezier(0.22, 1, 0.36, 1);
 }
+
 @keyframes slot-land {
   0% {
     transform: scale(0.92) rotate(-2deg);
@@ -1754,56 +1502,28 @@ function onMealPointerDown(
     background: var(--q-peach);
   }
 }
-.planning__meal {
+.planning__meal-wrap {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-width: 0;
   cursor: grab;
   touch-action: none;
-  transition: background-color var(--q-duration-fast) var(--q-ease-standard);
 }
-.planning__meal:hover {
-  background: color-mix(in srgb, var(--q-shoot) 28%, var(--q-peach));
-}
-.planning__meal:active {
+.planning__meal-wrap:active {
   cursor: grabbing;
 }
-.planning__meal:focus-visible {
-  outline: 3px solid var(--q-forest);
-  outline-offset: -3px;
-}
-.planning__meal-media {
-  height: 150px;
-  margin: 0 0.75rem;
-  border: 1px solid var(--q-leaf);
-  border-radius: var(--q-radius-control);
-  background: var(--q-sage);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-}
-.planning__meal-media img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.planning__meal-body {
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
-  padding: 0.55rem 0.75rem 0.65rem;
+
+.planning__recipe-card {
   flex: 1;
-  min-width: 0;
+  border: 0;
+  border-radius: 0;
+  border-top: 1px solid var(--q-leaf);
 }
-.planning__metrics {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  padding-top: 0.25rem;
+.planning__recipe-card:hover {
+  transform: none;
 }
+
 .planning__metric {
   display: inline-flex;
   align-items: center;
@@ -1816,16 +1536,7 @@ function onMealPointerDown(
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
-.planning__metric--muted {
-  color: var(--q-leaf);
-  font-weight: 600;
-}
-.planning__meal-meta {
-  display: flex;
-  align-items: center;
-  gap: var(--q-space-2);
-  flex-wrap: wrap;
-}
+
 .planning__category-badge {
   padding: 0.2rem 0.5rem;
   border-radius: var(--q-radius-control);
@@ -1833,41 +1544,31 @@ function onMealPointerDown(
   font-weight: 700;
   color: var(--q-forest);
 }
+
 .planning__category-badge--quitoque {
   background: var(--q-sage);
 }
+
 .planning__category-badge--home {
   background: var(--q-shoot);
 }
+
 .planning__category-badge--restaurant {
   background: var(--q-coral);
 }
+
 .planning__origin {
   font-size: var(--q-type-metadata);
   font-weight: 600;
   color: var(--q-leaf);
 }
-.planning__meal-title {
-  font-family: var(--q-font-display);
-  font-size: 1.0625rem;
-  font-weight: 750;
-  line-height: 1.25;
-  letter-spacing: -0.015em;
-  color: var(--q-forest);
-  overflow-wrap: anywhere;
-}
-.planning__meal-notes {
-  margin: 0;
-  font-size: var(--q-type-label);
-  line-height: 1.4;
-  color: var(--q-leaf);
-}
-.planning__meal a,
+
 .planning__day a {
   color: var(--q-forest);
   text-decoration-thickness: 2px;
   text-underline-offset: 0.2em;
 }
+
 .planning__meal-actions {
   margin-top: auto;
   display: flex;
@@ -1878,14 +1579,17 @@ function onMealPointerDown(
   border-top: 1px solid var(--q-leaf);
   background: var(--q-sage);
 }
+
 .planning__recipe-details,
 .planning__move {
   max-width: 100%;
 }
+
 .planning__recipe-details[open],
 .planning__move[open] {
   flex-basis: 100%;
 }
+
 .planning__recipe-details summary,
 .planning__move summary {
   list-style: none;
@@ -1901,15 +1605,18 @@ function onMealPointerDown(
   cursor: pointer;
   transition: background-color var(--q-duration-fast) var(--q-ease-standard);
 }
+
 .planning__recipe-details summary::-webkit-details-marker,
 .planning__move summary::-webkit-details-marker,
 .planning__assign summary::-webkit-details-marker {
   display: none;
 }
+
 .planning__recipe-details summary:hover,
 .planning__move summary:hover {
   background: var(--q-shoot);
 }
+
 .planning__recipe-drawer {
   margin-top: var(--q-space-2);
   padding: var(--q-space-3);
@@ -1918,21 +1625,25 @@ function onMealPointerDown(
   font-size: var(--q-type-label);
   line-height: 1.45;
 }
+
 .planning__recipe-drawer p,
 .planning__recipe-drawer ul,
 .planning__recipe-drawer ol {
   margin: 0.35rem 0;
 }
+
 .planning__recipe-drawer li {
   margin-block: 0.3rem;
   white-space: pre-line;
 }
+
 .planning__recipe-drawer h4 {
   margin: 0.65rem 0 0.25rem;
   font-family: var(--q-font-display);
   font-size: var(--q-type-label);
   font-weight: 750;
 }
+
 .planning__move-form {
   margin-top: var(--q-space-2);
   display: grid;
@@ -1940,9 +1651,11 @@ function onMealPointerDown(
   gap: var(--q-space-2);
   align-items: end;
 }
+
 .planning__move-form :deep(button) {
-  grid-column: 1 / -1;
+  grid-column: 1/-1;
 }
+
 .planning__move-form label {
   display: grid;
   gap: 0.2rem;
@@ -1950,12 +1663,14 @@ function onMealPointerDown(
   font-weight: 600;
   color: var(--q-forest);
 }
+
 .planning__assign {
   display: flex;
   flex-direction: column;
   flex: 1;
   padding: 0.4rem 0.75rem 0.75rem;
 }
+
 .planning__assign summary {
   list-style: none;
   display: flex;
@@ -1972,22 +1687,27 @@ function onMealPointerDown(
   cursor: pointer;
   transition: background-color var(--q-duration-fast) var(--q-ease-standard);
 }
+
 .planning__assign[open] summary {
   min-height: 36px;
   justify-content: flex-start;
   margin-bottom: var(--q-space-2);
 }
+
 .planning__assign summary:hover {
   background: var(--q-shoot);
 }
+
 .planning__form {
   display: grid;
   gap: 0.5rem;
 }
+
 .planning__restaurant-fields {
   display: grid;
   gap: 0.5rem;
 }
+
 .planning__message,
 .planning__empty,
 .planning__note {
@@ -1998,14 +1718,17 @@ function onMealPointerDown(
   border-radius: var(--q-radius-card);
   font-size: var(--q-type-label);
 }
+
 .planning__message--error {
   background: var(--q-peach);
   border-color: var(--q-tomato);
   outline: 2px solid var(--q-tomato);
 }
+
 .planning__day {
   max-width: 52rem;
 }
+
 .planning__day-slot {
   padding: var(--q-space-4);
   margin-block: var(--q-space-3);
@@ -2013,53 +1736,11 @@ function onMealPointerDown(
   border-radius: var(--q-radius-card);
   flex-wrap: wrap;
 }
+
 .planning__day-slot h3 {
   margin: 0;
 }
-.planning__month {
-  overflow: hidden;
-}
-.planning__weekdays,
-.planning__month-grid {
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-}
-.planning__weekdays span {
-  padding: 0.75rem 0.25rem;
-  text-align: center;
-  color: var(--q-leaf);
-  font-weight: 700;
-}
-.planning__month-grid button {
-  min-height: 100px;
-  border: 1px solid var(--q-leaf);
-  margin: -0.5px;
-  padding: 0.5rem;
-  text-align: left;
-  background: var(--q-sage);
-  color: var(--q-forest);
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-.planning__month-grid button.is-outside {
-  background: var(--q-peach);
-}
-.planning__month-grid button.is-selected {
-  outline: 3px solid var(--q-terracotta);
-  outline-offset: -3px;
-}
-.planning__month-grid button.is-delivery strong::after {
-  content: ' · Livraison';
-  color: var(--q-forest);
-  font-size: var(--q-type-metadata);
-}
-.planning__month-meal--quitoque,
-.planning__month-meal--home,
-.planning__month-meal--restaurant {
-  color: var(--q-forest);
-}
+
 .planning button:focus-visible,
 .planning summary:focus-visible,
 .planning select:focus-visible,
@@ -2068,6 +1749,7 @@ function onMealPointerDown(
   outline: 3px solid var(--q-forest);
   outline-offset: 2px;
 }
+
 @media (max-width: 72rem) {
   .planning__slots {
     grid-auto-flow: row;
@@ -2096,26 +1778,6 @@ function onMealPointerDown(
   .planning__slots {
     grid-template-columns: 1fr;
   }
-  .planning__month-grid button {
-    min-height: 76px;
-    padding: 0.3rem;
-    font-size: var(--q-type-metadata);
-  }
-  .planning__month-grid button.is-delivery strong::after {
-    content: '•';
-    display: block;
-  }
-  .planning__weekdays span {
-    font-size: 0.75rem;
-  }
-}
-@media (max-width: 22rem) {
-  .planning__month-grid button {
-    min-height: 55px;
-  }
-  .planning__month-grid button span {
-    display: none;
-  }
 }
 @media (prefers-reduced-motion: reduce) {
   .planning :is(button, summary, details, li) {
@@ -2126,7 +1788,7 @@ function onMealPointerDown(
 }
 </style>
 
-<style lang="scss">
+<style>
 .planning-drag-ghost {
   position: fixed;
   top: 0;
@@ -2143,6 +1805,7 @@ function onMealPointerDown(
   overflow: hidden;
   box-shadow: 0 22px 44px -10px color-mix(in srgb, var(--q-forest) 45%, transparent);
 }
+
 .planning-drag-ghost.is-settling {
   transition:
     transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
@@ -2151,6 +1814,7 @@ function onMealPointerDown(
   opacity: 0;
   box-shadow: 0 4px 12px -4px color-mix(in srgb, var(--q-forest) 20%, transparent);
 }
+
 .planning-drag-ghost__pin {
   position: absolute;
   top: 8px;
@@ -2163,23 +1827,27 @@ function onMealPointerDown(
   border: 2px solid var(--q-forest);
   z-index: 2;
 }
+
 .planning-drag-ghost__media {
   height: 120px;
   background: var(--q-sage);
   overflow: hidden;
 }
+
 .planning-drag-ghost__media img {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
+
 .planning-drag-ghost__body {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
   padding: 0.6rem 0.75rem 0.75rem;
 }
+
 .planning-drag-ghost__tag {
   width: fit-content;
   padding: 0.16rem 0.48rem;
@@ -2187,213 +1855,21 @@ function onMealPointerDown(
   font-size: var(--q-type-metadata);
   font-weight: 750;
 }
+
 .planning-drag-ghost__tag--lunch {
   background: var(--q-shoot);
   color: var(--q-forest);
 }
+
 .planning-drag-ghost__tag--dinner {
   background: var(--q-coral);
   color: var(--q-forest);
 }
+
 .planning-drag-ghost__body strong {
   font-family: var(--q-font-display);
   font-size: 0.9375rem;
   font-weight: 750;
   line-height: 1.25;
-}
-.planning-modal__backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: var(--q-z-toast);
-  display: grid;
-  place-items: center;
-  padding: var(--q-space-4);
-  background: color-mix(in srgb, var(--q-forest) 68%, transparent);
-}
-.planning-modal {
-  display: flex;
-  flex-direction: column;
-  width: min(100%, 44rem);
-  max-height: min(88vh, 52rem);
-  overflow: hidden;
-  background: var(--q-peach);
-  color: var(--q-forest);
-  border: 2px solid var(--q-forest);
-  border-radius: var(--q-radius-card);
-}
-.planning-modal__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--q-space-3);
-  padding: var(--q-space-4);
-  background: var(--q-forest);
-  color: var(--q-peach);
-}
-.planning-modal__header-meta {
-  display: grid;
-  gap: 0.25rem;
-}
-.planning-modal__date {
-  font-size: var(--q-type-label);
-  font-weight: 600;
-  color: var(--q-shoot);
-  text-transform: capitalize;
-}
-.planning-modal__header h2 {
-  margin: 0;
-  font-family: var(--q-font-display);
-  font-size: var(--q-type-h3);
-  font-weight: 750;
-  line-height: var(--q-line-heading);
-}
-.planning-modal__close {
-  display: grid;
-  place-items: center;
-  flex: none;
-  min-width: var(--q-touch-target);
-  min-height: var(--q-touch-target);
-  border: 0;
-  border-radius: var(--q-radius-control);
-  background: transparent;
-  color: var(--q-peach);
-  cursor: pointer;
-}
-.planning-modal__close:hover {
-  background: var(--q-leaf);
-}
-.planning-modal__close:focus-visible {
-  outline: 3px solid var(--q-shoot);
-  outline-offset: 2px;
-}
-.planning-modal__body {
-  overflow-y: auto;
-  padding: var(--q-space-4);
-  display: flex;
-  flex-direction: column;
-  gap: var(--q-space-4);
-}
-.planning-modal__media {
-  height: 240px;
-  border: 1px solid var(--q-leaf);
-  border-radius: var(--q-radius-control);
-  background: var(--q-sage);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-}
-.planning-modal__media img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.planning-modal__badges {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--q-space-2);
-}
-.planning-modal__badges .planning__category-badge,
-.planning-modal__badges .planning__metric {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.22rem 0.55rem;
-  border-radius: var(--q-radius-control);
-  background: var(--q-sage);
-  color: var(--q-forest);
-  font-size: var(--q-type-metadata);
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-.planning-modal__badges .planning__category-badge--home {
-  background: var(--q-shoot);
-}
-.planning-modal__badges .planning__category-badge--restaurant {
-  background: var(--q-coral);
-}
-.planning-modal__badges .planning__origin {
-  font-size: var(--q-type-metadata);
-  font-weight: 600;
-  color: var(--q-leaf);
-}
-.planning-modal__description,
-.planning-modal__notes {
-  margin: 0;
-  line-height: var(--q-line-body);
-}
-.planning-modal__section {
-  display: grid;
-  gap: var(--q-space-2);
-}
-.planning-modal__section h3 {
-  margin: 0;
-  font-family: var(--q-font-display);
-  font-size: var(--q-type-h4);
-  font-weight: 750;
-  color: var(--q-forest);
-}
-.planning-modal__ingredients {
-  margin: 0;
-  padding: var(--q-space-3);
-  list-style: none;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
-  gap: var(--q-space-2);
-  background: var(--q-sage);
-  border-radius: var(--q-radius-control);
-  font-size: var(--q-type-label);
-}
-.planning-modal__steps {
-  margin: 0;
-  padding-left: 1.35rem;
-  display: grid;
-  gap: var(--q-space-4);
-  line-height: var(--q-line-body);
-}
-.planning-modal__step-title {
-  display: block;
-  margin-bottom: var(--q-space-2);
-  font-family: var(--q-font-display);
-  font-size: var(--q-type-body);
-  font-weight: 800;
-  color: var(--q-forest);
-}
-.planning-modal__step-lines {
-  display: grid;
-  gap: var(--q-space-2);
-
-  p {
-    margin: 0;
-  }
-}
-.planning-modal__link-wrap {
-  padding-top: var(--q-space-2);
-}
-.planning-modal__recipe-link {
-  display: inline-flex;
-  align-items: center;
-  min-height: var(--q-touch-target);
-  padding: 0 var(--q-space-4);
-  border-radius: var(--q-radius-control);
-  background: var(--q-shoot);
-  color: var(--q-forest);
-  font-family: var(--q-font-display);
-  font-weight: 700;
-  text-decoration: none;
-}
-.planning-modal__recipe-link:hover {
-  background: var(--q-coral);
-}
-.planning-modal__footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--q-space-3);
-  padding: var(--q-space-3) var(--q-space-4);
-  border-top: 1px solid var(--q-leaf);
-  background: var(--q-sage);
 }
 </style>

@@ -1,20 +1,47 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { useQuery } from '@tanstack/vue-query'
+import { computed, defineAsyncComponent, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, ChefHat, Clock3, Heart, Pencil, Star, Trash2 } from '@lucide/vue'
-import type { RecipeDetail } from '@quisera/shared'
 import NutritionPanel from '@/components/recipes/NutritionPanel.vue'
 import Button from '@/components/ui/Button.vue'
 import IconButton from '@/components/ui/IconButton.vue'
+import { queryClient, queryKeys } from '@/lib/query'
 import { deleteRecipe, getRecipe, setFavorite } from '@/recipes/api'
 import { formatRecipeInstructions } from '@/recipes/instructions'
+import '@/styles/recipes.css'
+
+const ModalDialog = defineAsyncComponent(() => import('@/components/ui/ModalDialog.vue'))
 
 const route = useRoute()
 const router = useRouter()
-const recipe = ref<RecipeDetail | null>(null)
-const loading = ref(true)
-const error = ref('')
 const pending = ref(false)
+const actionError = ref('')
+const confirmDeleteOpen = ref(false)
+
+const recipeId = computed(() => String(route.params['id'] ?? ''))
+
+const {
+  data: recipe,
+  isPending: loading,
+  error: queryError,
+  refetch,
+} = useQuery({
+  queryKey: computed(() => queryKeys.recipeDetail(recipeId.value)),
+  queryFn: () => getRecipe(recipeId.value),
+  enabled: computed(() => recipeId.value.length > 0),
+})
+
+const error = computed(() =>
+  actionError.value
+    ? actionError.value
+    : queryError.value instanceof Error
+      ? queryError.value.message
+      : queryError.value
+        ? 'Recette indisponible.'
+        : '',
+)
+
 const difficultyLabel = (value: string | null) =>
   value === 'easy'
     ? 'Facile'
@@ -23,48 +50,44 @@ const difficultyLabel = (value: string | null) =>
       : value === 'hard'
         ? 'Difficile'
         : 'Difficulté non disponible'
+
 const metricLabel = (key: string) =>
   key === 'nutriScore'
     ? 'Nutri-Score'
     : key === 'carbonScore'
       ? 'Score carbone'
       : 'Information nutritionnelle'
-async function load() {
-  loading.value = true
-  error.value = ''
-  try {
-    recipe.value = await getRecipe(String(route.params['id']))
-  } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : 'Recette indisponible.'
-  } finally {
-    loading.value = false
-  }
-}
+
 async function toggleFavorite() {
   if (!recipe.value) return
   pending.value = true
+  actionError.value = ''
   try {
     await setFavorite(recipe.value.id, !recipe.value.isFavorite)
-    await load()
+    await queryClient.invalidateQueries({ queryKey: queryKeys.recipesAll })
+    await refetch()
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : 'Favori indisponible.'
+    actionError.value = cause instanceof Error ? cause.message : 'Favori indisponible.'
   } finally {
     pending.value = false
   }
 }
-async function removeRecipe() {
-  if (!recipe.value || !window.confirm('Supprimer cette recette maison ?')) return
+
+async function confirmRemoveRecipe() {
+  if (!recipe.value) return
   pending.value = true
+  actionError.value = ''
   try {
     await deleteRecipe(recipe.value.id)
+    confirmDeleteOpen.value = false
+    await queryClient.invalidateQueries({ queryKey: queryKeys.recipesAll })
     await router.replace('/recettes')
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : 'Suppression impossible.'
+    actionError.value = cause instanceof Error ? cause.message : 'Suppression impossible.'
   } finally {
     pending.value = false
   }
 }
-onMounted(load)
 </script>
 
 <template>
@@ -114,7 +137,7 @@ onMounted(load)
             variant="ghost"
             :disabled="pending"
             aria-label="Supprimer la recette"
-            @click="removeRecipe"
+            @click="confirmDeleteOpen = true"
           >
             <Trash2 :size="18" aria-hidden="true" />
           </Button>
@@ -190,6 +213,25 @@ onMounted(load)
           <p v-else>Étapes non disponibles.</p>
         </section>
       </div>
+
+      <ModalDialog
+        v-if="confirmDeleteOpen"
+        v-model:open="confirmDeleteOpen"
+        title="Supprimer cette recette maison ?"
+        badge="Confirmation"
+        size="md"
+      >
+        <p>
+          La recette <strong>{{ recipe.title }}</strong> sera définitivement retirée de votre
+          bibliothèque.
+        </p>
+        <template #footer>
+          <Button variant="secondary" :disabled="pending" @click="confirmDeleteOpen = false">
+            Annuler
+          </Button>
+          <Button :loading="pending" @click="confirmRemoveRecipe">Supprimer définitivement</Button>
+        </template>
+      </ModalDialog>
     </template>
   </section>
 </template>

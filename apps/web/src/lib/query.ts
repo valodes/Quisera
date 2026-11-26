@@ -4,8 +4,8 @@ import type { RecipeFilters } from '@/recipes/api'
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 60_000,
-      gcTime: 10 * 60_000,
+      staleTime: 2 * 60_000,
+      gcTime: 15 * 60_000,
       refetchOnWindowFocus: false,
       retry: 1,
     },
@@ -19,8 +19,10 @@ export const queryKeys = {
   householdPreferences: ['account', 'household', 'preferences'] as const,
   recipes: (filters: RecipeFilters, favorites = false) =>
     ['recipes', 'list', { ...filters, favorites }] as const,
+  recipeDetail: (id: string) => ['recipes', 'detail', id] as const,
   recipesAll: ['recipes'] as const,
   houseRecipesAll: ['recipes', 'house-options'] as const,
+  nextMeals: (today: string) => ['planning', 'next-meals', today] as const,
   planning: (from: string, to: string) => ['planning', 'range', from, to] as const,
   planningAll: ['planning'] as const,
   delivery: (cycleId: string) => ['planning', 'delivery', cycleId] as const,

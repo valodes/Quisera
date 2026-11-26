@@ -183,7 +183,7 @@ for (const vp of viewports) {
     await page.goto('/planification')
     await assertPageCraft('/planification')
     await expect(page.getByText('Repas de fête').first()).toBeVisible()
-    await page.locator('.planif-card__clickable').first().click()
+    await page.locator('.q-recipe-card__trigger').first().click()
     await expect(page.getByRole('dialog')).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(page.getByRole('dialog')).toHaveCount(0)

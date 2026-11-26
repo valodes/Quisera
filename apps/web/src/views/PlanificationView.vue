@@ -1,15 +1,20 @@
 <script setup lang="ts">
 defineOptions({ name: 'PlanificationView' })
 
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef, watch } from 'vue'
+import {
+  computed,
+  defineAsyncComponent,
+  onMounted,
+  ref,
+  shallowRef,
+  useTemplateRef,
+  watch,
+} from 'vue'
 import {
   ArrowRight,
   CalendarClock,
-  Check,
   ChefHat,
   ClipboardCheck,
-  Clock3,
-  MapPin,
   Minus,
   Plus,
   RefreshCw,
@@ -17,35 +22,30 @@ import {
   ShoppingBasket,
   SlidersHorizontal,
   Sparkles,
-  Tag,
   Trash2,
-  Users,
   UtensilsCrossed,
-  Wallet,
   X,
 } from '@lucide/vue'
 import { ProgressIndicator, ProgressRoot } from 'reka-ui'
-import NutritionPanel from '@/components/recipes/NutritionPanel.vue'
 import RecipeCard from '@/components/recipes/RecipeCard.vue'
 import Button from '@/components/ui/Button.vue'
-import ScoreBadge from '@/components/ui/ScoreBadge.vue'
 import { useToast } from '@/components/ui/toast'
-import { parseStructuredStep } from '@/recipes/instructions'
+import { queryClient, queryKeys } from '@/lib/query'
+
+const PlanificationProductModal = defineAsyncComponent(
+  () => import('@/components/planification/PlanificationProductModal.vue'),
+)
+const PlanificationRecapTab = defineAsyncComponent(
+  () => import('@/components/planification/PlanificationRecapTab.vue'),
+)
 import {
   addBoxItem,
-  applyBoxCoupon,
-  geocodeAddress,
-  getDeliveryTimeSlots,
   getWeekCatalog,
   listUpcomingWeeks,
   removeBoxItem,
-  toggleBoxWallet,
-  updateBoxDeliverySlot,
   updateBoxItemQuantity,
-  updateBoxServings,
   type BoxCartItem,
   type CatalogProduct,
-  type DeliveryTimeSlotOption,
   type DynamicFilterGroup,
   type PlanificationSection,
   type UpcomingBoxWeek,
@@ -87,38 +87,6 @@ const selectedFilters = ref<Record<string, string[]>>({})
 const selectedCategory = ref<string | null>(null)
 const filtersOpen = ref(false)
 const activeProductModal = shallowRef<CatalogProduct | null>(null)
-const activeProductSteps = computed(() =>
-  (activeProductModal.value?.steps ?? []).map((step, idx) => parseStructuredStep(step, idx + 1)),
-)
-
-// Recap tab state: delivery slots, map coords, servings, coupons
-const timeSlotsLoading = ref(false)
-const availableDeliveryDates = shallowRef<string[]>([])
-const availableTimeSlots = shallowRef<DeliveryTimeSlotOption[]>([])
-const selectedDeliveryDate = ref('')
-const selectedTimeSlotId = ref<number | null>(null)
-const savingDelivery = ref(false)
-const savingServings = ref(false)
-const savingPromo = ref(false)
-const manualCouponInput = ref('')
-const mapCoords = ref<{ lat: number; lon: number } | null>(null)
-
-const osmEmbedUrl = computed(() => {
-  if (!mapCoords.value) return null
-  const { lat, lon } = mapCoords.value
-  const dLat = 0.008
-  const dLon = 0.012
-  const bbox = `${(lon - dLon).toFixed(5)},${(lat - dLat).toFixed(5)},${(lon + dLon).toFixed(5)},${(lat + dLat).toFixed(5)}`
-  return `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${lat.toFixed(5)},${lon.toFixed(5)}`
-})
-
-const slotsForSelectedDate = computed(() => {
-  if (!selectedDeliveryDate.value) return availableTimeSlots.value
-  return availableTimeSlots.value.filter(
-    (slot) =>
-      slot.deliveryDates.length === 0 || slot.deliveryDates.includes(selectedDeliveryDate.value),
-  )
-})
 
 const totalBoxItemsCount = computed(() =>
   (currentWeek.value?.items ?? []).reduce((sum, item) => sum + item.quantity, 0),
@@ -150,12 +118,6 @@ function openProductModal(product: CatalogProduct) {
 
 function closeProductModal() {
   activeProductModal.value = null
-}
-
-function handleKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape' && activeProductModal.value) {
-    closeProductModal()
-  }
 }
 
 const currentWeek = computed(
@@ -309,13 +271,18 @@ function resetFilters() {
 }
 
 function replaceWeekInList(updated: UpcomingBoxWeek) {
-  weeks.value = weeks.value.map((week) => (week.orderId === updated.orderId ? updated : week))
+  const next = weeks.value.map((week) => (week.orderId === updated.orderId ? updated : week))
+  weeks.value = next
+  queryClient.setQueryData(queryKeys.upcomingBoxes, next)
 }
 
 async function loadWeeks() {
   weeksLoading.value = true
   try {
-    const data = await listUpcomingWeeks()
+    const data = await queryClient.fetchQuery({
+      queryKey: queryKeys.upcomingBoxes,
+      queryFn: listUpcomingWeeks,
+    })
     weeks.value = data
     if (!selectedOrderId.value || !data.some((w) => w.orderId === selectedOrderId.value)) {
       selectedOrderId.value = data.find((w) => w.isNextOrder)?.orderId ?? data[0]?.orderId ?? ''
@@ -334,9 +301,13 @@ async function loadWeeks() {
 async function loadCatalog() {
   const week = currentWeek.value
   if (!week || activeSection.value === 'recap') return
+  const section = activeSection.value
   catalogLoading.value = true
   try {
-    const res = await getWeekCatalog(week.periodStartDate, week.periodEndDate, activeSection.value)
+    const res = await queryClient.fetchQuery({
+      queryKey: queryKeys.weekCatalog(week.periodStartDate, week.periodEndDate, section),
+      queryFn: () => getWeekCatalog(week.periodStartDate, week.periodEndDate, section),
+    })
     catalogItems.value = res.items
     filterGroups.value = res.filterGroups
     seasonalCategories.value = res.seasonalCategories
@@ -371,7 +342,7 @@ function launchFlyToCart(product: CatalogProduct) {
     return
   }
   const sourceEl = document.querySelector<HTMLElement>(
-    `[data-product-id="${product.id}"] .planif-card__media`,
+    `[data-product-id="${product.id}"] .q-recipe-card__photo`,
   )
   const targetEl =
     document.querySelector<HTMLElement>(`[data-cart-group="${product.section}"]`) ?? cartRef.value
@@ -511,123 +482,6 @@ async function handleChangeQuantity(item: BoxCartItem, delta: number) {
   }
 }
 
-async function loadRecapData() {
-  const week = currentWeek.value
-  if (!week) return
-  selectedDeliveryDate.value = week.shipment?.deliveryDate ?? week.deliveryDate ?? ''
-  selectedTimeSlotId.value = week.shipment?.timeSlotId ?? null
-
-  const postcode = week.shippingAddress?.postcode
-  if (postcode) {
-    timeSlotsLoading.value = true
-    try {
-      const res = await getDeliveryTimeSlots(postcode, week.periodStartDate)
-      availableDeliveryDates.value = res.deliveryDates
-      availableTimeSlots.value = res.timeSlots
-      if (!selectedDeliveryDate.value && res.deliveryDates[0]) {
-        selectedDeliveryDate.value = res.deliveryDates[0]
-      }
-    } catch {
-      availableDeliveryDates.value = []
-      availableTimeSlots.value = []
-    } finally {
-      timeSlotsLoading.value = false
-    }
-  }
-
-  const addressQuery = [
-    week.shippingAddress?.street,
-    week.shippingAddress?.postcode,
-    week.shippingAddress?.city,
-    'France',
-  ]
-    .filter(Boolean)
-    .join(', ')
-  if (addressQuery) {
-    try {
-      mapCoords.value = await geocodeAddress(addressQuery)
-    } catch {
-      mapCoords.value = null
-    }
-  }
-}
-
-async function handleSelectServings(size: number) {
-  const week = currentWeek.value
-  if (!week || isLocked.value || week.servings === size) return
-  savingServings.value = true
-  try {
-    const updated = await updateBoxServings(week.orderId, size)
-    replaceWeekInList(updated)
-    toast.success(`Box ajustée pour ${size} personnes.`)
-  } catch (cause) {
-    toast.error(
-      cause instanceof Error ? cause.message : 'Impossible de modifier le nombre de personnes.',
-    )
-  } finally {
-    savingServings.value = false
-  }
-}
-
-async function handleSaveDeliverySlot() {
-  const week = currentWeek.value
-  if (!week?.shipment?.id || !selectedDeliveryDate.value || !selectedTimeSlotId.value) return
-  const slot = slotsForSelectedDate.value.find((s) => s.id === selectedTimeSlotId.value)
-  if (!slot) return
-  savingDelivery.value = true
-  try {
-    const updated = await updateBoxDeliverySlot(week.orderId, {
-      shipmentId: week.shipment.id,
-      shippingMethodCode: slot.shippingMethodCode,
-      deliveryDate: selectedDeliveryDate.value,
-      begin: slot.begin,
-      end: slot.end,
-      timeSlotId: slot.id,
-    })
-    replaceWeekInList(updated)
-    toast.success(
-      `Livraison mise à jour : ${formatDeliveryDate(selectedDeliveryDate.value)} (${slot.label}).`,
-    )
-  } catch (cause) {
-    toast.error(
-      cause instanceof Error ? cause.message : 'Impossible de modifier le créneau de livraison.',
-    )
-  } finally {
-    savingDelivery.value = false
-  }
-}
-
-async function handleApplyCoupon(code: string | null) {
-  const week = currentWeek.value
-  if (!week || isLocked.value) return
-  savingPromo.value = true
-  try {
-    const updated = await applyBoxCoupon(week.orderId, code)
-    replaceWeekInList(updated)
-    manualCouponInput.value = ''
-    toast.success(code ? `Code promo « ${code} » appliqué.` : 'Code promo retiré.')
-  } catch (cause) {
-    toast.error(cause instanceof Error ? cause.message : 'Code promo refusé.')
-  } finally {
-    savingPromo.value = false
-  }
-}
-
-async function handleToggleWallet() {
-  const week = currentWeek.value
-  if (!week || isLocked.value) return
-  savingPromo.value = true
-  try {
-    const updated = await toggleBoxWallet(week.orderId, !week.useWallet)
-    replaceWeekInList(updated)
-    toast.success(updated.useWallet ? 'Cagnotte activée sur cette box.' : 'Cagnotte désactivée.')
-  } catch (cause) {
-    toast.error(cause instanceof Error ? cause.message : 'Modification impossible.')
-  } finally {
-    savingPromo.value = false
-  }
-}
-
 function goNextStep() {
   if (activeSection.value === 'recipes') activeSection.value = 'ready-meals'
   else if (activeSection.value === 'ready-meals') activeSection.value = 'market'
@@ -635,21 +489,15 @@ function goNextStep() {
 }
 
 watch([selectedOrderId, activeSection], () => {
-  if (activeSection.value === 'recap') {
-    void loadRecapData()
-  } else {
+  if (activeSection.value !== 'recap') {
     resetFilters()
     void loadCatalog()
   }
 })
 
 onMounted(async () => {
-  window.addEventListener('keydown', handleKeydown)
   await loadWeeks()
   if (currentWeek.value) await loadCatalog()
-})
-onBeforeUnmount(() => {
-  window.removeEventListener('keydown', handleKeydown)
 })
 </script>
 
@@ -726,296 +574,18 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Step 4: Full Visual Recap View -->
-    <div v-else-if="activeSection === 'recap'" class="planif-recap">
-      <div class="planif-recap__main">
-        <!-- Delivery Location + Interactive Map + Time Slot Picker -->
-        <section class="recap-card">
-          <header class="recap-card__head">
-            <div>
-              <h2>
-                <MapPin :size="19" aria-hidden="true" />
-                Lieu et horaires de livraison
-              </h2>
-              <p v-if="currentWeek.shippingAddress">
-                {{ currentWeek.shippingAddress.recipientName }} ·
-                {{ currentWeek.shippingAddress.street }},
-                {{ currentWeek.shippingAddress.postcode }}
-                {{ currentWeek.shippingAddress.city }}
-              </p>
-            </div>
-            <span
-              v-if="currentWeek.shipment?.startTime && currentWeek.shipment?.endTime"
-              class="recap-card__slot-pill"
-            >
-              <Clock3 :size="14" aria-hidden="true" />
-              Entre {{ currentWeek.shipment.startTime }} et
-              {{ currentWeek.shipment.endTime }}
-            </span>
-          </header>
-
-          <div class="recap-delivery-grid">
-            <div class="recap-map">
-              <iframe
-                v-if="osmEmbedUrl"
-                :src="osmEmbedUrl"
-                title="Carte du lieu de livraison"
-                loading="lazy"
-                referrerpolicy="no-referrer"
-              />
-              <div v-else class="recap-map__fallback">
-                <MapPin :size="28" aria-hidden="true" />
-                <strong>{{ currentWeek.shippingAddress?.city ?? 'Adresse de livraison' }}</strong>
-                <span>{{ currentWeek.shippingAddress?.street }}</span>
-              </div>
-            </div>
-
-            <div class="recap-slots">
-              <h3>Modifier le jour et le créneau horaire</h3>
-              <div v-if="timeSlotsLoading" class="recap-slots__loading" role="status">
-                Chargement des créneaux disponibles…
-              </div>
-              <template v-else-if="availableDeliveryDates.length">
-                <div class="recap-date-pills">
-                  <button
-                    v-for="date in availableDeliveryDates"
-                    :key="date"
-                    type="button"
-                    class="planif-pill"
-                    :class="{ 'is-active': selectedDeliveryDate === date }"
-                    :disabled="isLocked"
-                    @click="selectedDeliveryDate = date"
-                  >
-                    {{ formatShortDate(date) }}
-                  </button>
-                </div>
-
-                <div class="recap-timeslot-list">
-                  <button
-                    v-for="slot in slotsForSelectedDate"
-                    :key="slot.id"
-                    type="button"
-                    class="recap-timeslot"
-                    :class="{ 'is-selected': selectedTimeSlotId === slot.id }"
-                    :disabled="isLocked"
-                    @click="selectedTimeSlotId = slot.id"
-                  >
-                    <div>
-                      <strong>Entre {{ slot.begin }} et {{ slot.end }}</strong>
-                      <span v-if="slot.recommended" class="recap-timeslot__tag">Recommandé</span>
-                    </div>
-                    <span>{{ formatCents(slot.priceCents) }}</span>
-                  </button>
-                </div>
-
-                <Button
-                  variant="secondary"
-                  :disabled="isLocked || !selectedTimeSlotId"
-                  :loading="savingDelivery"
-                  @click="handleSaveDeliverySlot"
-                >
-                  Enregistrer le créneau
-                </Button>
-              </template>
-              <p v-else class="planif-cart__empty">
-                Livraison prévue le
-                {{ formatDeliveryDate(currentWeek.deliveryDate) }}.
-              </p>
-            </div>
-          </div>
-        </section>
-
-        <!-- Servings selector -->
-        <section class="recap-card">
-          <header class="recap-card__head">
-            <div>
-              <h2>
-                <Users :size="19" aria-hidden="true" />
-                Nombre de personnes
-              </h2>
-              <p>Ajuste automatiquement les portions des recettes de cette box.</p>
-            </div>
-          </header>
-          <div class="recap-servings">
-            <button
-              v-for="count in [2, 3, 4, 5]"
-              :key="count"
-              type="button"
-              class="recap-servings__btn"
-              :class="{ 'is-active': currentWeek.servings === count }"
-              :disabled="isLocked || savingServings"
-              @click="handleSelectServings(count)"
-            >
-              <strong>{{ count }}</strong>
-              <span>personnes</span>
-            </button>
-          </div>
-        </section>
-
-        <!-- Visual gallery of all selected items -->
-        <section class="recap-card">
-          <header class="recap-card__head">
-            <div>
-              <h2>
-                <UtensilsCrossed :size="19" aria-hidden="true" />
-                Contenu de votre box ({{ totalBoxItemsCount }} articles)
-              </h2>
-            </div>
-          </header>
-
-          <div
-            v-for="section in catalogSections"
-            :key="`recap-${section.id}`"
-            class="recap-gallery-group"
-          >
-            <div class="recap-gallery-group__head">
-              <h3>{{ section.label }} ({{ sectionCount(section.id) }})</h3>
-              <button
-                type="button"
-                class="recap-gallery-group__edit"
-                @click="activeSection = section.id"
-              >
-                Modifier
-              </button>
-            </div>
-            <div v-if="groupedCartItems[section.id].length" class="recap-gallery-grid">
-              <article
-                v-for="item in groupedCartItems[section.id]"
-                :key="`recap-item-${item.id}`"
-                class="recap-item-card"
-              >
-                <div class="recap-item-card__media">
-                  <img v-if="item.imageUrl" :src="item.imageUrl" :alt="item.title" loading="lazy" />
-                  <UtensilsCrossed v-else :size="28" aria-hidden="true" />
-                  <span class="recap-item-card__qty">×{{ item.quantity }}</span>
-                </div>
-                <div class="recap-item-card__body">
-                  <strong>{{ item.title }}</strong>
-                  <span v-if="item.totalCents > 0">{{ formatCents(item.totalCents) }}</span>
-                </div>
-              </article>
-            </div>
-            <p v-else class="planif-cart__empty">Aucun article dans cette catégorie.</p>
-          </div>
-        </section>
-      </div>
-
-      <!-- Right column: Promo Codes, Wallet & Financial Total -->
-      <aside class="planif-recap__side">
-        <section class="recap-card">
-          <header class="recap-card__head">
-            <h2>
-              <Tag :size="18" aria-hidden="true" />
-              Codes promos et cagnotte
-            </h2>
-          </header>
-
-          <ul v-if="currentWeek.promotions.length" class="recap-promos">
-            <li
-              v-for="promo in currentWeek.promotions"
-              :key="promo.id"
-              class="recap-promo"
-              :class="{ 'is-applied': promo.isOnOrder }"
-            >
-              <div class="recap-promo__info">
-                <strong>{{ promo.description ?? promo.name }}</strong>
-                <small>
-                  <span v-if="promo.couponCode">{{ promo.couponCode }}</span>
-                  <span v-if="promo.amountCents > 0"> · -{{ formatCents(promo.amountCents) }}</span>
-                  <span v-if="promo.endsAt">
-                    · Valable jusqu’au {{ formatShortDate(promo.endsAt) }}</span
-                  >
-                </small>
-              </div>
-              <button
-                v-if="promo.couponCode"
-                type="button"
-                class="recap-promo__btn"
-                :disabled="isLocked || savingPromo"
-                @click="handleApplyCoupon(promo.isOnOrder ? null : promo.couponCode)"
-              >
-                <Check v-if="promo.isOnOrder" :size="14" aria-hidden="true" />
-                {{ promo.isOnOrder ? 'Appliqué' : 'Appliquer' }}
-              </button>
-            </li>
-          </ul>
-          <p v-else class="planif-cart__empty">Aucun code promo disponible sur votre compte.</p>
-
-          <form
-            class="recap-coupon-form"
-            @submit.prevent="
-              manualCouponInput.trim() && handleApplyCoupon(manualCouponInput.trim())
-            "
-          >
-            <input
-              v-model="manualCouponInput"
-              type="text"
-              placeholder="Saisir un code promo…"
-              :disabled="isLocked || savingPromo"
-            />
-            <Button
-              type="submit"
-              variant="secondary"
-              :disabled="isLocked || !manualCouponInput.trim()"
-              :loading="savingPromo"
-              >Appliquer</Button
-            >
-          </form>
-
-          <div class="recap-wallet">
-            <div>
-              <strong>
-                <Wallet :size="16" aria-hidden="true" />
-                Cagnotte Quitoque
-              </strong>
-              <small>Solde disponible : {{ formatCents(currentWeek.walletBalanceCents) }}</small>
-            </div>
-            <button
-              type="button"
-              class="planif-pill"
-              :class="{ 'is-active': currentWeek.useWallet }"
-              :disabled="isLocked || savingPromo"
-              @click="handleToggleWallet"
-            >
-              {{ currentWeek.useWallet ? 'Activée' : 'Activer' }}
-            </button>
-          </div>
-        </section>
-
-        <section class="recap-card">
-          <header class="recap-card__head">
-            <h2>Total de la box</h2>
-          </header>
-          <div class="planif-cart__summary">
-            <div class="planif-cart__line">
-              <span>Sous-total articles</span>
-              <strong>{{ formatCents(currentWeek.itemsTotalCents) }}</strong>
-            </div>
-            <div
-              v-if="currentWeek.promotionTotalCents !== 0"
-              class="planif-cart__line planif-cart__line--promo"
-            >
-              <span>Réductions</span>
-              <strong>{{ formatCents(currentWeek.promotionTotalCents) }}</strong>
-            </div>
-            <div
-              v-if="currentWeek.walletTotalCents !== 0"
-              class="planif-cart__line planif-cart__line--promo"
-            >
-              <span>Cagnotte utilisée</span>
-              <strong>{{ formatCents(currentWeek.walletTotalCents) }}</strong>
-            </div>
-            <div class="planif-cart__line">
-              <span>Livraison</span>
-              <strong>{{ formatCents(currentWeek.shippingTotalCents) }}</strong>
-            </div>
-            <div class="planif-cart__total">
-              <span>Total estimé</span>
-              <strong>{{ formatCents(currentWeek.totalCents) }}</strong>
-            </div>
-          </div>
-        </section>
-      </aside>
-    </div>
+    <PlanificationRecapTab
+      v-else-if="activeSection === 'recap'"
+      :week="currentWeek"
+      :is-locked="isLocked"
+      :grouped-cart-items="groupedCartItems"
+      :section-count="sectionCount"
+      :format-cents="formatCents"
+      :format-short-date="formatShortDate"
+      :format-delivery-date="formatDeliveryDate"
+      @updated-week="replaceWeekInList"
+      @edit-section="(sec) => (activeSection = sec)"
+    />
 
     <!-- Steps 1-3: Main 2-column workspace: Catalog + Sticky Box Cart Sidebar -->
     <div v-else class="planif-workspace">
@@ -1329,202 +899,29 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Product Detail Modal (Recettes, Plats cuisinés & Marché) -->
-    <Teleport to="body">
-      <div
-        v-if="activeProductModal"
-        class="planif-modal__backdrop"
-        role="presentation"
-        @click.self="closeProductModal"
-      >
-        <div
-          class="planif-modal"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="planif-modal-title"
-        >
-          <header class="planif-modal__header">
-            <div class="planif-modal__header-meta">
-              <span class="planif-modal__section">{{
-                activeProductModal.section === 'recipes'
-                  ? 'Recette à cuisiner'
-                  : activeProductModal.section === 'ready-meals'
-                    ? 'Plat cuisiné'
-                    : 'Produit du marché'
-              }}</span>
-              <h2 id="planif-modal-title">{{ activeProductModal.title }}</h2>
-            </div>
-            <button
-              type="button"
-              class="planif-modal__close"
-              aria-label="Fermer la fiche"
-              @click="closeProductModal"
-            >
-              <X :size="20" aria-hidden="true" />
-            </button>
-          </header>
-
-          <div class="planif-modal__body">
-            <div v-if="activeProductModal.imageUrl" class="planif-modal__media">
-              <img
-                :src="activeProductModal.imageUrl"
-                :alt="`Photographie de ${activeProductModal.title}`"
-              />
-            </div>
-
-            <div class="planif-modal__badges">
-              <span
-                v-for="hl in activeProductModal.highlights"
-                :key="hl"
-                class="planif-modal__chip planif-modal__chip--shoot"
-                >{{ hl }}</span
-              >
-              <span v-if="activeProductModal.totalMinutes" class="planif-modal__chip">
-                <Clock3 :size="13" aria-hidden="true" />
-                {{ activeProductModal.totalMinutes }} min
-              </span>
-              <span
-                v-if="activeProductModal.additionalCostCents > 0"
-                class="planif-modal__chip planif-modal__chip--accent"
-              >
-                Supplément +{{ formatCents(activeProductModal.additionalCostCents) }}
-              </span>
-              <span
-                v-else-if="
-                  activeProductModal.section !== 'recipes' && activeProductModal.priceCents
-                "
-                class="planif-modal__chip planif-modal__chip--accent"
-              >
-                {{ formatCents(activeProductModal.priceCents) }}
-              </span>
-              <ScoreBadge
-                v-if="activeProductModal.nutriScore"
-                kind="nutri"
-                :grade="activeProductModal.nutriScore"
-              />
-              <ScoreBadge
-                v-if="activeProductModal.carbonScore"
-                kind="eco"
-                :grade="activeProductModal.carbonScore"
-              />
-            </div>
-
-            <p v-if="activeProductModal.description" class="planif-modal__desc">
-              {{ activeProductModal.description }}
-            </p>
-
-            <NutritionPanel
-              :servings="activeProductModal.servings ?? currentWeek?.servings ?? null"
-              :nutrition="activeProductModal.nutrition"
-            />
-
-            <section v-if="activeProductModal.allergens.length" class="planif-modal__section-block">
-              <h3>Allergènes</h3>
-              <div class="planif-modal__badges">
-                <span
-                  v-for="allergen in activeProductModal.allergens"
-                  :key="allergen"
-                  class="planif-modal__chip"
-                  >{{ allergen }}</span
-                >
-              </div>
-            </section>
-
-            <section
-              v-if="activeProductModal.ingredients.length"
-              class="planif-modal__section-block"
-            >
-              <h3>Ingrédients</h3>
-              <ul class="planif-modal__ingredients">
-                <li
-                  v-for="(ing, idx) in activeProductModal.ingredients"
-                  :key="`${idx}-${ing.name}`"
-                >
-                  <strong>{{ ing.name }}</strong>
-                  <span v-if="ing.quantity">
-                    · {{ ing.quantity }}<template v-if="ing.unit"> {{ ing.unit }}</template></span
-                  >
-                  <span v-if="ing.notes"> · {{ ing.notes }}</span>
-                </li>
-              </ul>
-            </section>
-
-            <section v-if="activeProductSteps.length" class="planif-modal__section-block">
-              <h3>Préparation</h3>
-              <ol class="planif-modal__steps">
-                <li
-                  v-for="(step, idx) in activeProductSteps"
-                  :key="`pstep-${idx}`"
-                  class="planif-modal__step"
-                >
-                  <strong v-if="step.title" class="planif-modal__step-title">
-                    {{ step.title }}
-                  </strong>
-                  <div class="planif-modal__step-lines">
-                    <p v-for="(line, lineIdx) in step.lines" :key="`pline-${idx}-${lineIdx}`">
-                      {{ line }}
-                    </p>
-                  </div>
-                </li>
-              </ol>
-            </section>
-
-            <div v-if="activeProductModal.categories.length" class="planif-modal__badges">
-              <span
-                v-for="cat in activeProductModal.categories"
-                :key="cat"
-                class="planif-modal__chip"
-                >{{ cat }}</span
-              >
-            </div>
-          </div>
-
-          <footer class="planif-modal__footer">
-            <template v-if="cartItemByProductId.get(activeProductModal.id)">
-              <div class="planif-stepper planif-modal__stepper">
-                <button
-                  type="button"
-                  aria-label="Retirer un exemplaire"
-                  :disabled="isLocked || mutatingKey === activeProductModal.id"
-                  @click="handleChangeQuantity(cartItemByProductId.get(activeProductModal.id)!, -1)"
-                >
-                  <Minus :size="15" aria-hidden="true" />
-                </button>
-                <span>{{ cartItemByProductId.get(activeProductModal.id)!.quantity }}</span>
-                <button
-                  type="button"
-                  aria-label="Ajouter un exemplaire"
-                  :disabled="isLocked || mutatingKey === activeProductModal.id"
-                  @click="handleChangeQuantity(cartItemByProductId.get(activeProductModal.id)!, 1)"
-                >
-                  <Plus :size="15" aria-hidden="true" />
-                </button>
-              </div>
-            </template>
-            <Button
-              v-else
-              variant="secondary"
-              :disabled="isLocked || !activeProductModal.variantCode"
-              :loading="mutatingKey === activeProductModal.id"
-              @click="handleAddProduct(activeProductModal)"
-            >
-              <Plus :size="16" aria-hidden="true" />
-              Ajouter à la box
-            </Button>
-            <Button @click="closeProductModal">Fermer</Button>
-          </footer>
-        </div>
-      </div>
-    </Teleport>
+    <PlanificationProductModal
+      v-if="activeProductModal"
+      :product="activeProductModal"
+      :cart-item="cartItemByProductId.get(activeProductModal.id)"
+      :servings="currentWeek?.servings ?? null"
+      :is-locked="isLocked"
+      :mutating="mutatingKey === activeProductModal.id"
+      :format-cents="formatCents"
+      @close="closeProductModal"
+      @add="handleAddProduct"
+      @change-quantity="handleChangeQuantity"
+    />
   </section>
 </template>
 
-<style scoped lang="scss">
+<style scoped>
 .planification {
   display: flex;
   flex-direction: column;
   gap: var(--q-space-4);
   color: var(--q-forest);
 }
+
 .planif-top {
   display: flex;
   align-items: center;
@@ -1536,16 +933,19 @@ onBeforeUnmount(() => {
   background: var(--q-peach);
   border: 2px solid var(--q-forest);
 }
+
 .planif-top__week {
   display: flex;
   align-items: flex-end;
   flex-wrap: wrap;
   gap: var(--q-space-3);
 }
+
 .planif-top__select-wrap {
   display: grid;
   gap: 0.25rem;
 }
+
 .planif-top__select-wrap span {
   font-size: var(--q-type-metadata);
   font-weight: 750;
@@ -1553,6 +953,7 @@ onBeforeUnmount(() => {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+
 .planif-top__select-wrap select {
   min-height: var(--q-touch-target);
   padding: 0.45rem 0.75rem;
@@ -1564,6 +965,7 @@ onBeforeUnmount(() => {
   font-weight: 700;
   font-size: var(--q-type-label);
 }
+
 .planif-deadline {
   display: flex;
   align-items: center;
@@ -1574,28 +976,34 @@ onBeforeUnmount(() => {
   color: var(--q-forest);
   border: 1px solid var(--q-forest);
 }
+
 .planif-deadline--locked {
   background: var(--q-coral);
 }
+
 .planif-deadline__text {
   display: grid;
   gap: 0.1rem;
 }
+
 .planif-deadline__text strong {
   font-family: var(--q-font-display);
   font-size: var(--q-type-label);
   font-weight: 800;
 }
+
 .planif-deadline__text span {
   font-size: var(--q-type-metadata);
   font-weight: 600;
   text-transform: capitalize;
 }
+
 .planif-timeline {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--q-space-3);
 }
+
 .planif-timeline__step {
   position: relative;
   display: flex;
@@ -1617,15 +1025,18 @@ onBeforeUnmount(() => {
     border-color var(--q-duration-fast) var(--q-ease-standard),
     transform var(--q-duration-fast) var(--q-ease-standard);
 }
+
 .planif-timeline__step:hover:not(.is-active) {
   background: var(--q-shoot);
   border-color: var(--q-forest);
 }
+
 .planif-timeline__step.is-active {
   background: var(--q-forest);
   color: var(--q-peach);
   border-color: var(--q-forest);
 }
+
 .planif-timeline__num {
   display: grid;
   place-items: center;
@@ -1637,6 +1048,7 @@ onBeforeUnmount(() => {
   font-size: var(--q-type-metadata);
   font-weight: 850;
 }
+
 .planif-timeline__count {
   padding: 0.15rem 0.5rem;
   border-radius: var(--q-radius-control);
@@ -1646,10 +1058,12 @@ onBeforeUnmount(() => {
   font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
+
 .planif-timeline__step.is-active .planif-timeline__count {
   background: var(--q-coral);
   color: var(--q-forest);
 }
+
 .planif-empty {
   padding: var(--q-space-6);
   border-radius: var(--q-radius-card);
@@ -1657,18 +1071,21 @@ onBeforeUnmount(() => {
   border: 1px solid var(--q-leaf);
   font-weight: 600;
 }
+
 .planif-workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 23rem;
   gap: var(--q-space-4);
   align-items: start;
 }
+
 .planif-catalog {
   display: flex;
   flex-direction: column;
   gap: var(--q-space-4);
   min-width: 0;
 }
+
 .planif-filters {
   display: flex;
   flex-direction: column;
@@ -1678,12 +1095,14 @@ onBeforeUnmount(() => {
   background: var(--q-peach);
   border: 2px solid var(--q-forest);
 }
+
 .planif-filters__search-row {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: var(--q-space-2);
 }
+
 .planif-filters__toggle {
   display: inline-flex;
   align-items: center;
@@ -1699,11 +1118,13 @@ onBeforeUnmount(() => {
   font-weight: 750;
   cursor: pointer;
 }
+
 .planif-filters__toggle:hover,
 .planif-filters__toggle.is-open {
   background: var(--q-forest);
   color: var(--q-peach);
 }
+
 .planif-filters__badge {
   display: inline-grid;
   place-items: center;
@@ -1716,6 +1137,7 @@ onBeforeUnmount(() => {
   font-size: 0.7rem;
   font-weight: 850;
 }
+
 .planif-strip {
   display: flex;
   align-items: center;
@@ -1724,19 +1146,23 @@ onBeforeUnmount(() => {
   padding-bottom: 2px;
   scrollbar-width: thin;
 }
+
 .planif-strip__icon {
   display: inline-flex;
   color: var(--q-leaf);
   flex: none;
 }
+
 .planif-strip .planif-pill {
   flex: none;
 }
+
 .planif-pill--chip {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
 }
+
 .planif-drawer {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
@@ -1744,6 +1170,7 @@ onBeforeUnmount(() => {
   padding-top: var(--q-space-3);
   border-top: 1px solid var(--q-leaf);
 }
+
 .planif-search {
   flex: 1 1 16rem;
   display: flex;
@@ -1756,6 +1183,7 @@ onBeforeUnmount(() => {
   background: var(--q-sage);
   color: var(--q-forest);
 }
+
 .planif-search input {
   width: 100%;
   border: 0;
@@ -1764,12 +1192,14 @@ onBeforeUnmount(() => {
   font-size: var(--q-type-label);
   outline: none;
 }
+
 .planif-filters__count {
   font-size: var(--q-type-label);
   font-weight: 700;
   color: var(--q-leaf);
   font-variant-numeric: tabular-nums;
 }
+
 .planif-filters__reset {
   min-height: 36px;
   padding: 0 var(--q-space-3);
@@ -1781,11 +1211,13 @@ onBeforeUnmount(() => {
   font-weight: 750;
   cursor: pointer;
 }
+
 .planif-filter-group {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
 }
+
 .planif-filter-group__label {
   display: inline-flex;
   align-items: center;
@@ -1796,11 +1228,13 @@ onBeforeUnmount(() => {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+
 .planif-filter-pills {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
 }
+
 .planif-pill {
   min-height: 34px;
   padding: 0.25rem 0.7rem;
@@ -1815,72 +1249,31 @@ onBeforeUnmount(() => {
     background-color var(--q-duration-fast) var(--q-ease-standard),
     color var(--q-duration-fast) var(--q-ease-standard);
 }
+
 .planif-pill:hover:not(.is-active) {
   background: var(--q-shoot);
 }
+
 .planif-pill--seasonal {
   border-style: dashed;
 }
+
 .planif-pill.is-active {
   background: var(--q-forest);
   color: var(--q-peach);
   border-color: var(--q-forest);
   border-style: solid;
 }
+
 .planif-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(17.5rem, 1fr));
-  gap: var(--q-space-3);
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
+  gap: var(--q-space-4);
 }
-.planif-card {
-  display: flex;
-  flex-direction: column;
-  border-radius: var(--q-radius-card);
-  background: var(--q-peach);
-  border: 2px solid var(--q-leaf);
-  overflow: hidden;
-  transition:
-    border-color var(--q-duration-fast) var(--q-ease-standard),
-    transform var(--q-duration-fast) var(--q-ease-standard);
-}
-.planif-card:hover {
-  border-color: var(--q-forest);
-  transform: translateY(-2px);
-}
-.planif-card.is-in-box {
-  border-color: var(--q-forest);
-  box-shadow: 0 0 0 2px var(--q-shoot);
-}
-.planif-card__clickable {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  cursor: pointer;
-}
-.planif-card__clickable:focus-visible {
-  outline: 3px solid var(--q-forest);
-  outline-offset: -3px;
-}
-.planif-card__media {
-  position: relative;
-  aspect-ratio: 16 / 10;
-  background: var(--q-sage);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-}
-.planif-card__media img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
+
 .planif-card__highlight {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  max-width: calc(100% - 5.5rem);
+  margin-right: auto;
+  max-width: 72%;
   padding: 0.2rem 0.55rem;
   border-radius: var(--q-radius-control);
   background: var(--q-shoot);
@@ -1892,10 +1285,9 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
 .planif-card__extra {
-  position: absolute;
-  top: 8px;
-  right: 8px;
+  margin-left: auto;
   padding: 0.2rem 0.5rem;
   border-radius: var(--q-radius-control);
   background: var(--q-forest);
@@ -1904,57 +1296,15 @@ onBeforeUnmount(() => {
   font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
-.planif-card__body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--q-space-2);
-  padding: var(--q-space-3);
-  flex: 1;
-}
-.planif-card__title {
-  margin: 0;
-  font-family: var(--q-font-display);
-  font-size: 1rem;
-  font-weight: 750;
-  line-height: 1.25;
-  color: var(--q-forest);
-}
-.planif-card__desc {
-  margin: 0;
-  font-size: var(--q-type-metadata);
-  line-height: 1.4;
-  color: var(--q-leaf);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.planif-card__metrics {
-  margin-top: auto;
-  padding-top: 0.25rem;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.35rem;
-}
-.planif-card__time {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.18rem 0.45rem;
-  border-radius: var(--q-radius-control);
-  background: var(--q-sage);
-  color: var(--q-forest);
-  font-size: var(--q-type-metadata);
-  font-weight: 700;
-}
-.planif-card__foot {
-  padding: var(--q-space-2) var(--q-space-3) var(--q-space-3);
-}
+
 .planif-card__add {
   width: 100%;
+  flex: 1;
 }
+
 .planif-stepper {
+  width: 100%;
+  flex: 1;
   display: grid;
   grid-template-columns: 44px 1fr 44px;
   align-items: center;
@@ -1964,6 +1314,7 @@ onBeforeUnmount(() => {
   color: var(--q-peach);
   overflow: hidden;
 }
+
 .planif-stepper button {
   display: grid;
   place-items: center;
@@ -1973,15 +1324,18 @@ onBeforeUnmount(() => {
   color: var(--q-peach);
   cursor: pointer;
 }
+
 .planif-stepper button:hover {
   background: var(--q-leaf);
 }
+
 .planif-stepper span {
   text-align: center;
   font-family: var(--q-font-display);
   font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
+
 .planif-cart {
   position: sticky;
   top: var(--q-space-4);
@@ -1995,24 +1349,28 @@ onBeforeUnmount(() => {
   border: 2px solid var(--q-forest);
   overflow: hidden;
 }
+
 .planif-cart__head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--q-space-2);
 }
+
 .planif-cart__head h2 {
   margin: 0;
   font-family: var(--q-font-display);
   font-size: var(--q-type-h4);
   font-weight: 850;
 }
+
 .planif-cart__head p {
   margin: 0.15rem 0 0;
   font-size: var(--q-type-metadata);
   color: var(--q-leaf);
   font-weight: 600;
 }
+
 .planif-cart__servings {
   padding: 0.2rem 0.55rem;
   border-radius: var(--q-radius-control);
@@ -2021,6 +1379,7 @@ onBeforeUnmount(() => {
   font-size: var(--q-type-metadata);
   font-weight: 800;
 }
+
 .planif-cart__progress {
   display: grid;
   gap: 0.35rem;
@@ -2028,6 +1387,7 @@ onBeforeUnmount(() => {
   border-radius: var(--q-radius-control);
   background: var(--q-sage);
 }
+
 .planif-cart__progress-row {
   display: flex;
   justify-content: space-between;
@@ -2035,12 +1395,14 @@ onBeforeUnmount(() => {
   font-weight: 750;
   font-variant-numeric: tabular-nums;
 }
+
 .planif-cart__progress-track {
   height: 8px;
   border-radius: 999px;
   background: var(--q-peach);
   overflow: hidden;
 }
+
 .planif-cart__progress-fill {
   width: 100%;
   height: 100%;
@@ -2048,6 +1410,7 @@ onBeforeUnmount(() => {
   background: var(--q-leaf);
   transition: transform 240ms var(--q-ease-standard);
 }
+
 .planif-cart__groups {
   flex: 1;
   overflow-y: auto;
@@ -2056,10 +1419,12 @@ onBeforeUnmount(() => {
   gap: var(--q-space-3);
   padding-right: 2px;
 }
+
 .planif-cart__group {
   display: grid;
   gap: 0.4rem;
 }
+
 .planif-cart__group-head {
   display: flex;
   align-items: center;
@@ -2067,6 +1432,7 @@ onBeforeUnmount(() => {
   padding-bottom: 0.25rem;
   border-bottom: 1px solid var(--q-leaf);
 }
+
 .planif-cart__group-head h3 {
   margin: 0;
   font-family: var(--q-font-display);
@@ -2076,11 +1442,13 @@ onBeforeUnmount(() => {
   letter-spacing: 0.04em;
   color: var(--q-leaf);
 }
+
 .planif-cart__group-head span {
   font-size: var(--q-type-metadata);
   font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
+
 .planif-cart__list {
   list-style: none;
   margin: 0;
@@ -2088,6 +1456,7 @@ onBeforeUnmount(() => {
   display: grid;
   gap: 0.4rem;
 }
+
 .planif-cart__item {
   display: grid;
   grid-template-columns: 44px minmax(0, 1fr) auto;
@@ -2097,6 +1466,7 @@ onBeforeUnmount(() => {
   border-radius: var(--q-radius-control);
   background: var(--q-sage);
 }
+
 .planif-cart__thumb {
   width: 44px;
   height: 44px;
@@ -2107,17 +1477,20 @@ onBeforeUnmount(() => {
   justify-content: center;
   overflow: hidden;
 }
+
 .planif-cart__thumb img {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
+
 .planif-cart__item-info {
   display: grid;
   gap: 0.1rem;
   min-width: 0;
 }
+
 .planif-cart__item-info strong {
   font-size: var(--q-type-metadata);
   line-height: 1.25;
@@ -2126,16 +1499,19 @@ onBeforeUnmount(() => {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
 .planif-cart__item-info small {
   font-size: 0.7rem;
   color: var(--q-leaf);
   font-weight: 700;
 }
+
 .planif-cart__item-controls {
   display: inline-flex;
   align-items: center;
   gap: 0.2rem;
 }
+
 .planif-cart__item-controls button {
   display: grid;
   place-items: center;
@@ -2147,9 +1523,11 @@ onBeforeUnmount(() => {
   color: var(--q-forest);
   cursor: pointer;
 }
+
 .planif-cart__item-controls button:hover {
   background: var(--q-shoot);
 }
+
 .planif-cart__item-controls span {
   min-width: 1.2rem;
   text-align: center;
@@ -2157,11 +1535,13 @@ onBeforeUnmount(() => {
   font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
+
 .planif-cart__empty {
   margin: 0;
   font-size: var(--q-type-metadata);
   color: var(--q-leaf);
 }
+
 .planif-cart__summary {
   display: grid;
   gap: 0.35rem;
@@ -2169,14 +1549,17 @@ onBeforeUnmount(() => {
   border-top: 2px solid var(--q-forest);
   font-variant-numeric: tabular-nums;
 }
+
 .planif-cart__line {
   display: flex;
   justify-content: space-between;
   font-size: var(--q-type-metadata);
 }
+
 .planif-cart__line--promo strong {
   color: var(--q-leaf);
 }
+
 .planif-cart__total {
   display: flex;
   justify-content: space-between;
@@ -2185,359 +1568,17 @@ onBeforeUnmount(() => {
   font-size: 1.0625rem;
   font-weight: 850;
 }
+
 .planif-cart__next {
   width: 100%;
   margin-top: var(--q-space-2);
 }
-.planif-recap {
-  display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(20rem, 0.85fr);
-  gap: var(--q-space-4);
-  align-items: start;
-}
-.planif-recap__main,
-.planif-recap__side {
-  display: flex;
-  flex-direction: column;
-  gap: var(--q-space-4);
-  min-width: 0;
-}
-.planif-recap__side {
-  position: sticky;
-  top: var(--q-space-4);
-}
-.recap-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--q-space-4);
-  padding: var(--q-space-4);
-  border-radius: var(--q-radius-card);
-  background: var(--q-peach);
-  border: 2px solid var(--q-forest);
-}
-.recap-card__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: var(--q-space-2);
-}
-.recap-card__head h2 {
-  margin: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--q-space-2);
-  font-family: var(--q-font-display);
-  font-size: var(--q-type-h4);
-  font-weight: 850;
-}
-.recap-card__head p {
-  margin: 0.25rem 0 0;
-  font-size: var(--q-type-label);
-  color: var(--q-leaf);
-  font-weight: 600;
-}
-.recap-card__slot-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.35rem 0.7rem;
-  border-radius: var(--q-radius-control);
-  background: var(--q-shoot);
-  color: var(--q-forest);
-  border: 1px solid var(--q-forest);
-  font-size: var(--q-type-label);
-  font-weight: 800;
-}
-.recap-delivery-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: var(--q-space-4);
-  align-items: stretch;
-}
-.recap-map {
-  min-height: 260px;
-  border-radius: var(--q-radius-control);
-  border: 1px solid var(--q-leaf);
-  background: var(--q-sage);
-  overflow: hidden;
-  display: flex;
-}
-.recap-map iframe {
-  width: 100%;
-  height: 100%;
-  min-height: 260px;
-  border: 0;
-}
-.recap-map__fallback {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.35rem;
-  padding: var(--q-space-4);
-  text-align: center;
-}
-.recap-slots {
-  display: flex;
-  flex-direction: column;
-  gap: var(--q-space-3);
-}
-.recap-slots h3 {
-  margin: 0;
-  font-family: var(--q-font-display);
-  font-size: var(--q-type-label);
-  font-weight: 800;
-}
-.recap-date-pills {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-}
-.recap-timeslot-list {
-  display: grid;
-  gap: 0.45rem;
-}
-.recap-timeslot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--q-space-2);
-  padding: 0.55rem 0.75rem;
-  border: 1px solid var(--q-leaf);
-  border-radius: var(--q-radius-control);
-  background: var(--q-sage);
-  color: var(--q-forest);
-  cursor: pointer;
-  font-size: var(--q-type-label);
-  font-weight: 700;
-  text-align: left;
-}
-.recap-timeslot:hover {
-  background: var(--q-shoot);
-}
-.recap-timeslot.is-selected {
-  background: var(--q-forest);
-  color: var(--q-peach);
-  border-color: var(--q-forest);
-}
-.recap-timeslot__tag {
-  margin-left: 0.45rem;
-  padding: 0.1rem 0.4rem;
-  border-radius: 4px;
-  background: var(--q-shoot);
-  color: var(--q-forest);
-  font-size: 0.7rem;
-  font-weight: 800;
-}
-.recap-servings {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--q-space-2);
-}
-.recap-servings__btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.1rem;
-  padding: var(--q-space-3);
-  border: 2px solid var(--q-leaf);
-  border-radius: var(--q-radius-control);
-  background: var(--q-sage);
-  color: var(--q-forest);
-  cursor: pointer;
-}
-.recap-servings__btn strong {
-  font-family: var(--q-font-display);
-  font-size: 1.5rem;
-  font-weight: 850;
-  line-height: 1;
-}
-.recap-servings__btn span {
-  font-size: var(--q-type-metadata);
-  font-weight: 700;
-}
-.recap-servings__btn:hover:not(.is-active) {
-  background: var(--q-shoot);
-}
-.recap-servings__btn.is-active {
-  background: var(--q-forest);
-  color: var(--q-peach);
-  border-color: var(--q-forest);
-}
-.recap-gallery-group {
-  display: grid;
-  gap: var(--q-space-2);
-}
-.recap-gallery-group__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-bottom: 0.25rem;
-  border-bottom: 1px solid var(--q-leaf);
-}
-.recap-gallery-group__head h3 {
-  margin: 0;
-  font-family: var(--q-font-display);
-  font-size: var(--q-type-label);
-  font-weight: 800;
-}
-.recap-gallery-group__edit {
-  border: 0;
-  background: transparent;
-  color: var(--q-leaf);
-  font-size: var(--q-type-metadata);
-  font-weight: 800;
-  text-decoration: underline;
-  cursor: pointer;
-}
-.recap-gallery-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(12.5rem, 1fr));
-  gap: var(--q-space-3);
-}
-.recap-item-card {
-  display: flex;
-  flex-direction: column;
-  border-radius: var(--q-radius-control);
-  background: var(--q-sage);
-  border: 1px solid var(--q-leaf);
-  overflow: hidden;
-}
-.recap-item-card__media {
-  position: relative;
-  aspect-ratio: 16 / 10;
-  background: var(--q-peach);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-}
-.recap-item-card__media img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.recap-item-card__qty {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  padding: 0.15rem 0.45rem;
-  border-radius: 4px;
-  background: var(--q-forest);
-  color: var(--q-shoot);
-  font-size: var(--q-type-metadata);
-  font-weight: 850;
-}
-.recap-item-card__body {
-  padding: 0.5rem;
-  display: grid;
-  gap: 0.2rem;
-}
-.recap-item-card__body strong {
-  font-size: var(--q-type-metadata);
-  line-height: 1.25;
-}
-.recap-item-card__body span {
-  font-size: 0.72rem;
-  font-weight: 700;
-  color: var(--q-leaf);
-}
-.recap-promos {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: var(--q-space-2);
-}
-.recap-promo {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--q-space-2);
-  padding: var(--q-space-3);
-  border-radius: var(--q-radius-control);
-  background: var(--q-sage);
-  border: 1px solid var(--q-leaf);
-}
-.recap-promo.is-applied {
-  background: var(--q-shoot);
-  border-color: var(--q-forest);
-}
-.recap-promo__info {
-  display: grid;
-  gap: 0.15rem;
-  min-width: 0;
-}
-.recap-promo__info strong {
-  font-size: var(--q-type-label);
-  line-height: 1.3;
-}
-.recap-promo__info small {
-  font-size: var(--q-type-metadata);
-  color: var(--q-leaf);
-  font-weight: 600;
-}
-.recap-promo__btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  flex: none;
-  min-height: 36px;
-  padding: 0 0.7rem;
-  border: 1px solid var(--q-forest);
-  border-radius: var(--q-radius-control);
-  background: var(--q-forest);
-  color: var(--q-peach);
-  font-size: var(--q-type-metadata);
-  font-weight: 750;
-  cursor: pointer;
-}
-.recap-coupon-form {
-  display: flex;
-  gap: var(--q-space-2);
-}
-.recap-coupon-form input {
-  flex: 1;
-  min-height: var(--q-touch-target);
-  padding: 0.45rem 0.7rem;
-  border: 1px solid var(--q-leaf);
-  border-radius: var(--q-radius-control);
-  background: var(--q-sage);
-  color: var(--q-forest);
-  font-size: var(--q-type-label);
-}
-.recap-wallet {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--q-space-2);
-  padding: var(--q-space-3);
-  border-radius: var(--q-radius-control);
-  background: var(--q-sage);
-  border: 1px solid var(--q-leaf);
-}
-.recap-wallet strong {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: var(--q-type-label);
-}
-.recap-wallet small {
-  display: block;
-  font-size: var(--q-type-metadata);
-  color: var(--q-leaf);
-}
+
 @media (max-width: 72rem) {
-  .planif-workspace,
-  .planif-recap,
-  .recap-delivery-grid {
+  .planif-workspace {
     grid-template-columns: 1fr;
   }
-  .planif-cart,
-  .planif-recap__side {
+  .planif-cart {
     position: static;
     max-height: none;
   }
@@ -2550,9 +1591,11 @@ onBeforeUnmount(() => {
 .planif-cart.is-catching {
   animation: cart-catch 440ms cubic-bezier(0.22, 1, 0.36, 1);
 }
+
 .planif-cart.is-removing {
   animation: cart-recoil 320ms cubic-bezier(0.22, 1, 0.36, 1);
 }
+
 @keyframes cart-catch {
   0% {
     transform: scale(1);
@@ -2588,23 +1631,28 @@ onBeforeUnmount(() => {
     transform 340ms cubic-bezier(0.22, 1, 0.36, 1),
     background-color 420ms ease;
 }
+
 .cart-item-leave-active {
   transition:
     opacity 240ms ease,
     transform 280ms cubic-bezier(0.4, 0, 0.2, 1);
 }
+
 .cart-item-move {
   transition: transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
 }
+
 .cart-item-enter-from {
   opacity: 0;
   transform: translateX(22px) scale(0.92);
   background: var(--q-shoot);
 }
+
 .cart-item-leave-to {
   opacity: 0;
   transform: translateX(34px) scale(0.86) rotate(2deg);
 }
+
 @media (prefers-reduced-motion: reduce) {
   .planif-cart.is-catching,
   .planif-cart.is-removing {
@@ -2617,7 +1665,7 @@ onBeforeUnmount(() => {
 }
 </style>
 
-<style lang="scss">
+<style>
 .planif-flyer {
   position: fixed;
   z-index: calc(var(--q-z-toast) + 30);
@@ -2629,175 +1677,11 @@ onBeforeUnmount(() => {
   overflow: hidden;
   box-shadow: 0 20px 40px -10px color-mix(in srgb, var(--q-forest) 50%, transparent);
 }
+
 .planif-flyer img {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
-}
-.planif-modal__backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: calc(var(--q-z-toast) + 15);
-  display: grid;
-  place-items: center;
-  padding: var(--q-space-4);
-  background: color-mix(in srgb, var(--q-forest) 68%, transparent);
-}
-.planif-modal {
-  display: flex;
-  flex-direction: column;
-  width: min(100%, 44rem);
-  max-height: min(88vh, 54rem);
-  overflow: hidden;
-  background: var(--q-peach);
-  color: var(--q-forest);
-  border: 2px solid var(--q-forest);
-  border-radius: var(--q-radius-card);
-}
-.planif-modal__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--q-space-3);
-  padding: var(--q-space-4);
-  background: var(--q-forest);
-  color: var(--q-peach);
-}
-.planif-modal__header-meta {
-  display: grid;
-  gap: 0.25rem;
-}
-.planif-modal__section {
-  font-size: var(--q-type-metadata);
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--q-shoot);
-}
-.planif-modal__header h2 {
-  margin: 0;
-  font-family: var(--q-font-display);
-  font-size: var(--q-type-h3);
-  font-weight: 750;
-  line-height: var(--q-line-heading);
-}
-.planif-modal__close {
-  display: grid;
-  place-items: center;
-  flex: none;
-  min-width: var(--q-touch-target);
-  min-height: var(--q-touch-target);
-  border: 0;
-  border-radius: var(--q-radius-control);
-  background: transparent;
-  color: var(--q-peach);
-  cursor: pointer;
-}
-.planif-modal__close:hover {
-  background: var(--q-leaf);
-}
-.planif-modal__body {
-  overflow-y: auto;
-  padding: var(--q-space-4);
-  display: flex;
-  flex-direction: column;
-  gap: var(--q-space-4);
-}
-.planif-modal__media {
-  height: 240px;
-  border: 1px solid var(--q-leaf);
-  border-radius: var(--q-radius-control);
-  background: var(--q-sage);
-  overflow: hidden;
-}
-.planif-modal__media img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.planif-modal__badges {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.45rem;
-}
-.planif-modal__chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.22rem 0.55rem;
-  border-radius: var(--q-radius-control);
-  background: var(--q-sage);
-  color: var(--q-forest);
-  font-size: var(--q-type-metadata);
-  font-weight: 700;
-}
-.planif-modal__chip--shoot {
-  background: var(--q-shoot);
-}
-.planif-modal__chip--accent {
-  background: var(--q-coral);
-}
-.planif-modal__desc {
-  margin: 0;
-  line-height: var(--q-line-body);
-}
-.planif-modal__section-block {
-  display: grid;
-  gap: var(--q-space-2);
-}
-.planif-modal__section-block h3 {
-  margin: 0;
-  font-family: var(--q-font-display);
-  font-size: var(--q-type-h4);
-  font-weight: 750;
-}
-.planif-modal__ingredients {
-  margin: 0;
-  padding: var(--q-space-3);
-  list-style: none;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
-  gap: var(--q-space-2);
-  background: var(--q-sage);
-  border-radius: var(--q-radius-control);
-  font-size: var(--q-type-label);
-}
-.planif-modal__steps {
-  margin: 0;
-  padding-left: 1.35rem;
-  display: grid;
-  gap: var(--q-space-4);
-  line-height: var(--q-line-body);
-}
-.planif-modal__step-title {
-  display: block;
-  margin-bottom: var(--q-space-2);
-  font-family: var(--q-font-display);
-  font-size: var(--q-type-body);
-  font-weight: 800;
-  color: var(--q-forest);
-}
-.planif-modal__step-lines {
-  display: grid;
-  gap: var(--q-space-2);
-
-  p {
-    margin: 0;
-  }
-}
-.planif-modal__footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--q-space-3);
-  padding: var(--q-space-3) var(--q-space-4);
-  border-top: 1px solid var(--q-leaf);
-  background: var(--q-sage);
-}
-.planif-modal__stepper {
-  min-width: 9rem;
 }
 </style>

@@ -64,6 +64,8 @@ export type ExternalCatalogItem = {
   url: string
   imageUrl: string | null
   description?: string | null
+  totalMinutes?: number | null
+  caloriesKcal?: number | null
 }
 
 export type CatalogSourceStatus = {
