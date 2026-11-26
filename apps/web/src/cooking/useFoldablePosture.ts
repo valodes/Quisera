@@ -1,4 +1,5 @@
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { useEventListener, useMediaQuery } from '@vueuse/core'
+import { computed, ref } from 'vue'
 
 type DevicePostureLike = EventTarget & {
   type?: 'continuous' | 'folded'
@@ -9,66 +10,41 @@ type NavigatorWithPosture = Navigator & {
 }
 
 export function useFoldablePosture(forcedMode?: () => string | null) {
-  const isFlexMode = ref(false)
-  const isCoverScreen = ref(false)
+  const postureMedia = useMediaQuery('(device-posture: folded)')
+  const segmentsMedia = useMediaQuery('(vertical-viewport-segments: 2)')
+  const coverMedia = useMediaQuery('(max-width: 460px) and (max-height: 480px)')
+  const postureTick = ref(0)
 
-  let postureMedia: MediaQueryList | null = null
-  let segmentsMedia: MediaQueryList | null = null
-  let coverMedia: MediaQueryList | null = null
-
-  function evaluate() {
-    const forced = forcedMode?.()
-    if (forced === 'flex') {
-      isFlexMode.value = true
-      isCoverScreen.value = false
-      return
-    }
-    if (forced === 'cover') {
-      isFlexMode.value = false
-      isCoverScreen.value = true
-      return
-    }
-
-    const nav = typeof navigator !== 'undefined' ? (navigator as NavigatorWithPosture) : null
-    const postureFolded =
-      nav?.devicePosture?.type === 'folded' ||
-      Boolean(postureMedia?.matches) ||
-      Boolean(segmentsMedia?.matches)
-
-    const coverMatches = Boolean(coverMedia?.matches)
-
-    isCoverScreen.value = !postureFolded && coverMatches
-    isFlexMode.value = postureFolded
+  const nav = typeof navigator !== 'undefined' ? (navigator as NavigatorWithPosture) : null
+  if (nav?.devicePosture) {
+    useEventListener(nav.devicePosture, 'change', () => {
+      postureTick.value += 1
+    })
   }
 
-  onMounted(() => {
-    if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
-      postureMedia = window.matchMedia('(device-posture: folded)')
-      segmentsMedia = window.matchMedia('(vertical-viewport-segments: 2)')
-      coverMedia = window.matchMedia('(max-width: 460px) and (max-height: 480px)')
+  function refreshPosture() {
+    postureTick.value += 1
+  }
 
-      postureMedia.addEventListener('change', evaluate)
-      segmentsMedia.addEventListener('change', evaluate)
-      coverMedia.addEventListener('change', evaluate)
-    }
-
-    const nav = typeof navigator !== 'undefined' ? (navigator as NavigatorWithPosture) : null
-    nav?.devicePosture?.addEventListener('change', evaluate)
-
-    evaluate()
+  const isFlexMode = computed(() => {
+    void postureTick.value
+    const forced = forcedMode?.()
+    if (forced === 'flex') return true
+    if (forced === 'cover') return false
+    return nav?.devicePosture?.type === 'folded' || postureMedia.value || segmentsMedia.value
   })
 
-  onBeforeUnmount(() => {
-    postureMedia?.removeEventListener('change', evaluate)
-    segmentsMedia?.removeEventListener('change', evaluate)
-    coverMedia?.removeEventListener('change', evaluate)
-    const nav = typeof navigator !== 'undefined' ? (navigator as NavigatorWithPosture) : null
-    nav?.devicePosture?.removeEventListener('change', evaluate)
+  const isCoverScreen = computed(() => {
+    void postureTick.value
+    const forced = forcedMode?.()
+    if (forced === 'cover') return true
+    if (forced === 'flex') return false
+    return !isFlexMode.value && coverMedia.value
   })
 
   return {
     isFlexMode,
     isCoverScreen,
-    refreshPosture: evaluate,
+    refreshPosture,
   }
 }

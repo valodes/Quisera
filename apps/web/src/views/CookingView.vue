@@ -15,39 +15,32 @@ import {
   Timer,
   UtensilsCrossed,
 } from '@lucide/vue'
-import type { RecipeDetail, RecipeSummary } from '@quisera/shared'
+import { useQuery } from '@tanstack/vue-query'
+import { useEventListener } from '@vueuse/core'
 import { ProgressIndicator, ProgressRoot } from 'reka-ui'
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import { computed, defineAsyncComponent, ref, shallowRef, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import CookingTimerDock from '@/components/cooking/CookingTimerDock.vue'
 import Button from '@/components/ui/Button.vue'
-import { extractNamedStepTimers, useCookingTimers } from '@/cooking/useCookingTimers'
+import {
+  useCookingSession,
+  type CookingIngredient,
+  type CookingRecipe,
+} from '@/cooking/useCookingSession'
+
+const CookingCoverStage = defineAsyncComponent(
+  () => import('@/components/cooking/CookingCoverStage.vue'),
+)
+import { extractNamedStepTimers } from '@/cooking/stepTimerParser'
+import { useCookingTimers } from '@/cooking/useCookingTimers'
 import { useFoldablePosture } from '@/cooking/useFoldablePosture'
 import { useWakeLock } from '@/cooking/useWakeLock'
 import { useNextMeal } from '@/home/useNextMeal'
-import { queryClient, queryKeys } from '@/lib/query'
+import { queryKeys } from '@/lib/query'
+import { getDelivery, type DeliverySnapshot } from '@/planning/api'
 import { getRecipe, listRecipes } from '@/recipes/api'
 import { parseStructuredStep } from '@/recipes/instructions'
 
-type CookingIngredient = {
-  name: string
-  quantity: string | null
-  unit: string | null
-  notes: string | null
-}
-
-type CookingRecipe = {
-  id: string
-  title: string
-  description: string | null
-  imageUrl: string | null
-  sourceLabel: string
-  totalMinutes: number | null
-  prepMinutes: number | null
-  cookMinutes: number | null
-  ingredients: CookingIngredient[]
-  steps: string[]
-}
+const ModalDialog = defineAsyncComponent(() => import('@/components/ui/ModalDialog.vue'))
 
 const route = useRoute()
 const router = useRouter()
@@ -57,29 +50,120 @@ const {
   desired: wakeLockDesired,
   toggle: toggleWakeLock,
 } = useWakeLock()
+const { startTimer } = useCookingTimers()
 const {
-  timers: activeTimers,
-  startTimer,
-  togglePause,
-  addMinute,
-  dismissTimer,
-} = useCookingTimers()
+  session,
+  isSessionInProgress,
+  activateRecipe,
+  setPhase,
+  setStep,
+  setFinished,
+  toggleIngredient,
+  isIngredientChecked,
+  cancelAndReplaceSession,
+} = useCookingSession()
 const { loading: nextMealLoading, nextMeal, upcomingMeals } = useNextMeal()
 const { isFlexMode, isCoverScreen, refreshPosture } = useFoldablePosture(() =>
   typeof route.query['fold'] === 'string' ? route.query['fold'] : null,
 )
 
-const phase = ref<'overview' | 'steps'>('overview')
 const flexDeckTab = ref<'controls' | 'ingredients'>('controls')
-const coverShowIngredients = ref(false)
 let touchStartX: number | null = null
-const currentStep = ref(0)
-const finished = ref(false)
-const loadingRecipe = ref(false)
-const loadError = ref('')
-const directRecipe = shallowRef<RecipeDetail | null>(null)
-const houseRecipes = shallowRef<RecipeSummary[]>([])
-const checkedIngredients = ref<Record<string, boolean>>({})
+const pendingSwitchRecipe = shallowRef<CookingRecipe | null>(null)
+
+const routeRecipeId = computed(() =>
+  typeof route.query['recipe'] === 'string' ? route.query['recipe'].trim() : '',
+)
+const routeCycleId = computed(() =>
+  typeof route.query['cycle'] === 'string' ? route.query['cycle'].trim() : '',
+)
+const routeSelectionId = computed(() =>
+  typeof route.query['selection'] === 'string' ? route.query['selection'].trim() : '',
+)
+const hasExplicitRouteTarget = computed(() =>
+  Boolean(routeRecipeId.value || (routeCycleId.value && routeSelectionId.value)),
+)
+
+const {
+  data: directRecipeData,
+  isFetching: loadingHouseRecipe,
+  error: recipeQueryError,
+} = useQuery({
+  queryKey: computed(() => queryKeys.recipeDetail(routeRecipeId.value)),
+  queryFn: () => getRecipe(routeRecipeId.value),
+  enabled: computed(() => routeRecipeId.value.length > 0),
+})
+
+const {
+  data: deliveryData,
+  isFetching: loadingDelivery,
+  error: deliveryQueryError,
+} = useQuery({
+  queryKey: computed(() => queryKeys.delivery(routeCycleId.value)),
+  queryFn: () => getDelivery(routeCycleId.value),
+  enabled: computed(() => Boolean(routeCycleId.value && routeSelectionId.value)),
+})
+
+function parseQuitoqueSnapshotIngredients(
+  raw: DeliverySnapshot['ingredientsJson'],
+): CookingIngredient[] {
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.flatMap((entry: unknown) => {
+      if (!entry || typeof entry !== 'object') return []
+      const r = entry as Record<string, unknown>
+      if (typeof r['name'] !== 'string') return []
+      return [
+        {
+          name: r['name'],
+          quantity: typeof r['quantity'] === 'string' ? r['quantity'] : null,
+          unit: typeof r['unit'] === 'string' ? r['unit'] : null,
+          notes: typeof r['notes'] === 'string' ? r['notes'] : null,
+        },
+      ]
+    })
+  } catch {
+    return []
+  }
+}
+
+function parseQuitoqueSnapshotSteps(raw: DeliverySnapshot['stepsJson']): string[] {
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.filter((s): s is string => typeof s === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+const loadError = computed(() => {
+  if (routeRecipeId.value && recipeQueryError.value) {
+    return recipeQueryError.value instanceof Error
+      ? recipeQueryError.value.message
+      : 'Impossible de charger cette recette.'
+  }
+  if (routeCycleId.value && routeSelectionId.value) {
+    if (deliveryQueryError.value) {
+      return deliveryQueryError.value instanceof Error
+        ? deliveryQueryError.value.message
+        : 'Impossible de charger cette recette Quitoque.'
+    }
+    if (
+      deliveryData.value &&
+      !deliveryData.value.selections.some((s) => s.id === routeSelectionId.value)
+    ) {
+      return 'Cette recette Quitoque est introuvable dans ce cycle.'
+    }
+  }
+  return ''
+})
+
+const { data: houseRecipesData } = useQuery({
+  queryKey: queryKeys.houseRecipesAll,
+  queryFn: () => listRecipes({ source: 'house', page: 1, pageSize: 100, sort: 'title' }),
+})
+const houseRecipes = computed(() => houseRecipesData.value?.items ?? [])
 
 function estimateCookMinutes(
   steps: readonly string[],
@@ -103,12 +187,52 @@ function estimateCookMinutes(
   return { prep: null, cook: null }
 }
 
-const activeRecipe = computed<CookingRecipe | null>(() => {
-  if (directRecipe.value) {
-    const r = directRecipe.value
+const nextMealRecipe = computed<CookingRecipe | null>(() => {
+  if (!nextMeal.value) return null
+  const meal = nextMeal.value
+  const { prep, cook } = estimateCookMinutes(meal.steps, meal.totalMinutes)
+  const isHome = meal.meal.category === 'home' && Boolean(meal.meal.recipeId)
+  const isQuitoque =
+    meal.meal.category === 'quitoque' && Boolean(meal.cycleId && meal.meal.selectionId)
+  const key = isHome
+    ? `recipe:${meal.meal.recipeId}`
+    : isQuitoque
+      ? `quitoque:${meal.cycleId}:${meal.meal.selectionId}`
+      : `meal:${meal.meal.id}`
+  const routeQuery: Record<string, string> = isHome
+    ? { recipe: meal.meal.recipeId! }
+    : isQuitoque
+      ? { cycle: meal.cycleId!, selection: meal.meal.selectionId! }
+      : {}
+  return {
+    key,
+    id: meal.meal.id,
+    title: meal.meal.title,
+    description: meal.description,
+    imageUrl: meal.meal.imageUrl ?? meal.meal.thumbnailUrl,
+    sourceLabel:
+      meal.meal.category === 'quitoque'
+        ? 'Prochain repas · Quitoque'
+        : meal.meal.category === 'home'
+          ? 'Prochain repas · Maison'
+          : 'Prochain repas',
+    totalMinutes: meal.totalMinutes,
+    prepMinutes: prep,
+    cookMinutes: cook,
+    ingredients: meal.ingredients,
+    steps: meal.steps,
+    routeQuery,
+  }
+})
+
+const routeRequestedRecipe = computed<CookingRecipe | null>(() => {
+  if (routeRecipeId.value) {
+    const r = directRecipeData.value
+    if (!r || r.id !== routeRecipeId.value) return null
     const steps = r.steps.map((s) => s.instructions)
     const { prep, cook } = estimateCookMinutes(steps, r.totalMinutes)
     return {
+      key: `recipe:${r.id}`,
       id: r.id,
       title: r.title,
       description: r.description,
@@ -124,37 +248,82 @@ const activeRecipe = computed<CookingRecipe | null>(() => {
         notes: item.notes,
       })),
       steps,
+      routeQuery: { recipe: r.id },
     }
   }
 
-  if (nextMeal.value) {
-    const meal = nextMeal.value
-    const { prep, cook } = estimateCookMinutes(meal.steps, meal.totalMinutes)
+  if (routeCycleId.value && routeSelectionId.value) {
+    const sel = deliveryData.value?.selections.find((s) => s.id === routeSelectionId.value)
+    if (!sel) return null
+    const steps = parseQuitoqueSnapshotSteps(sel.stepsJson)
+    const ingredients = parseQuitoqueSnapshotIngredients(sel.ingredientsJson)
+    const { prep, cook } = estimateCookMinutes(steps, sel.totalMinutes)
     return {
-      id: meal.meal.id,
-      title: meal.meal.title,
-      description: meal.description,
-      imageUrl: meal.meal.imageUrl ?? meal.meal.thumbnailUrl,
-      sourceLabel:
-        meal.meal.category === 'quitoque'
-          ? 'Prochain repas · Quitoque'
-          : meal.meal.category === 'home'
-            ? 'Prochain repas · Maison'
-            : 'Prochain repas',
-      totalMinutes: meal.totalMinutes,
+      key: `quitoque:${routeCycleId.value}:${sel.id}`,
+      id: sel.id,
+      title: sel.title,
+      description: sel.description,
+      imageUrl: sel.photoUrl ?? sel.photoThumbnailUrl,
+      sourceLabel: 'Quitoque',
+      totalMinutes: sel.totalMinutes,
       prepMinutes: prep,
       cookMinutes: cook,
-      ingredients: meal.ingredients,
-      steps: meal.steps,
+      ingredients,
+      steps,
+      routeQuery: { cycle: routeCycleId.value, selection: sel.id },
     }
   }
 
   return null
 })
 
-const loading = computed(
-  () => loadingRecipe.value || (!directRecipe.value && nextMealLoading.value),
+function requestOrActivateRecipe(candidate: CookingRecipe) {
+  const current = session.value
+  if (!current || current.recipe.key === candidate.key || !isSessionInProgress.value) {
+    pendingSwitchRecipe.value = null
+    activateRecipe(candidate, true)
+    return
+  }
+  pendingSwitchRecipe.value = candidate
+}
+
+watch(
+  [hasExplicitRouteTarget, routeRequestedRecipe, nextMealRecipe],
+  ([explicit, requested, fallbackNext]) => {
+    if (explicit) {
+      if (requested) {
+        requestOrActivateRecipe(requested)
+      }
+      return
+    }
+    // Bare /cuisine: resume existing session if any; otherwise initialize with nextMeal
+    if (!session.value && fallbackNext) {
+      activateRecipe(fallbackNext, true)
+    }
+  },
+  { immediate: true },
 )
+
+const activeRecipe = computed(() => session.value?.recipe ?? null)
+const phase = computed(() => session.value?.phase ?? 'overview')
+const currentStep = computed(() => session.value?.currentStep ?? 0)
+const finished = computed(() => session.value?.finished ?? false)
+
+const loading = computed(() => {
+  if (session.value && !hasExplicitRouteTarget.value) return false
+  if (routeRecipeId.value && !directRecipeData.value && loadingHouseRecipe.value) return true
+  if (
+    routeCycleId.value &&
+    routeSelectionId.value &&
+    !deliveryData.value &&
+    loadingDelivery.value
+  ) {
+    return true
+  }
+  if (!session.value && !hasExplicitRouteTarget.value && nextMealLoading.value) return true
+  return false
+})
+
 const totalSteps = computed(() => activeRecipe.value?.steps.length ?? 0)
 const currentStepStructured = computed(() => {
   const recipe = activeRecipe.value
@@ -166,45 +335,33 @@ const currentStepTimers = computed(() =>
     currentStepStructured.value.title,
     currentStepStructured.value.lines,
     currentStep.value + 1,
+    {
+      ingredients: activeRecipe.value?.ingredients,
+      recipeTitle: activeRecipe.value?.title,
+    },
   ),
 )
 
 const checkedCount = computed(() => {
   const recipe = activeRecipe.value
   if (!recipe) return 0
-  return recipe.ingredients.filter((_, index) =>
-    Boolean(checkedIngredients.value[`${recipe.id}-${index}`]),
-  ).length
+  return recipe.ingredients.filter((_, index) => isIngredientChecked(index)).length
 })
 
-function toggleIngredient(index: number) {
-  const recipe = activeRecipe.value
-  if (!recipe) return
-  const key = `${recipe.id}-${index}`
-  checkedIngredients.value = {
-    ...checkedIngredients.value,
-    [key]: !checkedIngredients.value[key],
-  }
-}
-
-function isIngredientChecked(index: number): boolean {
-  const recipe = activeRecipe.value
-  if (!recipe) return false
-  return Boolean(checkedIngredients.value[`${recipe.id}-${index}`])
+function launchStepTimer(label: string, minutes: number) {
+  startTimer(label, minutes, activeRecipe.value?.key ?? null)
 }
 
 function startStepByStep(stepIndex = 0) {
   if (!activeRecipe.value || activeRecipe.value.steps.length === 0) return
-  currentStep.value = Math.max(0, Math.min(stepIndex, activeRecipe.value.steps.length - 1))
-  finished.value = false
-  phase.value = 'steps'
+  setStep(stepIndex, false)
+  setPhase('steps')
 }
 
 function goToStep(index: number) {
   if (!activeRecipe.value) return
   if (index < 0 || index >= activeRecipe.value.steps.length) return
-  currentStep.value = index
-  finished.value = false
+  setStep(index, false)
 }
 
 function nextStep() {
@@ -212,13 +369,13 @@ function nextStep() {
   if (currentStep.value < activeRecipe.value.steps.length - 1) {
     goToStep(currentStep.value + 1)
   } else {
-    finished.value = true
+    setFinished(true)
   }
 }
 
 function previousStep() {
   if (finished.value) {
-    finished.value = false
+    setFinished(false)
     return
   }
   if (currentStep.value > 0) {
@@ -242,45 +399,59 @@ function handleTouchEnd(event: TouchEvent) {
 }
 
 function backToOverview() {
-  phase.value = 'overview'
-  finished.value = false
-  coverShowIngredients.value = false
+  setPhase('overview')
+  setFinished(false)
 }
 
 async function selectRecipeById(recipeId: string) {
   if (!recipeId) {
-    directRecipe.value = null
+    if (nextMealRecipe.value) {
+      if (
+        session.value &&
+        session.value.recipe.key !== nextMealRecipe.value.key &&
+        isSessionInProgress.value
+      ) {
+        pendingSwitchRecipe.value = nextMealRecipe.value
+        return
+      }
+      activateRecipe(nextMealRecipe.value, false)
+    }
     await router.replace({ name: 'cooking' })
     return
   }
   await router.replace({ name: 'cooking', query: { recipe: recipeId } })
 }
 
-async function loadFromRoute() {
-  loadError.value = ''
-  const recipeId = typeof route.query['recipe'] === 'string' ? route.query['recipe'].trim() : ''
-  phase.value = 'overview'
-  currentStep.value = 0
-  finished.value = false
-
-  if (recipeId) {
-    loadingRecipe.value = true
-    try {
-      directRecipe.value = await getRecipe(recipeId)
-    } catch (cause) {
-      directRecipe.value = null
-      loadError.value =
-        cause instanceof Error ? cause.message : 'Impossible de charger cette recette.'
-    } finally {
-      loadingRecipe.value = false
-    }
-  } else {
-    directRecipe.value = null
+async function confirmSwitchRecipe() {
+  const target = pendingSwitchRecipe.value
+  if (!target) return
+  pendingSwitchRecipe.value = null
+  cancelAndReplaceSession(target)
+  const nextQuery = {
+    ...target.routeQuery,
+    ...(typeof route.query['fold'] === 'string' ? { fold: route.query['fold'] } : {}),
   }
+  await router.replace({ name: 'cooking', query: nextQuery })
 }
 
+async function cancelSwitchRecipe() {
+  pendingSwitchRecipe.value = null
+  const currentQuery = {
+    ...session.value?.recipe.routeQuery,
+    ...(typeof route.query['fold'] === 'string' ? { fold: route.query['fold'] } : {}),
+  }
+  await router.replace({ name: 'cooking', query: currentQuery })
+}
+
+const switchModalOpen = computed({
+  get: () => pendingSwitchRecipe.value !== null,
+  set: (open) => {
+    if (!open) void cancelSwitchRecipe()
+  },
+})
+
 function handleKeydown(event: KeyboardEvent) {
-  if (phase.value !== 'steps') return
+  if (phase.value !== 'steps' || pendingSwitchRecipe.value) return
   const target = event.target as HTMLElement | null
   if (target && ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName)) return
   if (event.key === 'ArrowRight') {
@@ -292,35 +463,14 @@ function handleKeydown(event: KeyboardEvent) {
   }
 }
 
-onMounted(async () => {
-  window.addEventListener('keydown', handleKeydown)
-  await Promise.all([
-    loadFromRoute(),
-    queryClient
-      .fetchQuery({
-        queryKey: queryKeys.houseRecipesAll,
-        queryFn: () => listRecipes({ source: 'house', page: 1, pageSize: 100, sort: 'title' }),
-      })
-      .then((res) => {
-        houseRecipes.value = res.items
-      })
-      .catch(() => {
-        houseRecipes.value = []
-      }),
-  ])
-})
+useEventListener('keydown', handleKeydown)
 
 watch(
-  () => [route.query['recipe'], route.query['fold']],
+  () => route.query['fold'],
   () => {
     refreshPosture()
-    void loadFromRoute()
   },
 )
-
-onBeforeUnmount(() => {
-  window.removeEventListener('keydown', handleKeydown)
-})
 </script>
 
 <template>
@@ -333,160 +483,24 @@ onBeforeUnmount(() => {
     aria-label="Mode cuisine"
   >
     <!-- COVER SCREEN (Z FLIP 7/8 FLEXWINDOW 4.1") -->
-    <div v-if="isCoverScreen && activeRecipe" class="cover-stage">
-      <header class="cover-header">
-        <span class="cover-header__step">
-          <ChefHat :size="14" aria-hidden="true" />
-          {{ phase === 'overview' ? 'Cuisine' : `${currentStep + 1} / ${totalSteps}` }}
-        </span>
-        <div class="cover-header__actions">
-          <button
-            v-if="phase === 'steps'"
-            type="button"
-            class="cover-toggle-btn"
-            :aria-pressed="coverShowIngredients"
-            @click="coverShowIngredients = !coverShowIngredients"
-          >
-            {{
-              coverShowIngredients
-                ? 'Étape'
-                : `Ingrédients (${checkedCount}/${activeRecipe.ingredients.length})`
-            }}
-          </button>
-        </div>
-      </header>
-
-      <div v-if="phase === 'overview'" class="cover-overview">
-        <h2 class="cover-overview__title">{{ activeRecipe.title }}</h2>
-        <div class="cover-overview__meta">
-          <span v-if="activeRecipe.totalMinutes">{{ activeRecipe.totalMinutes }} min</span>
-          <span>{{ activeRecipe.ingredients.length }} ingr.</span>
-          <span>{{ totalSteps }} étapes</span>
-        </div>
-        <Button
-          type="button"
-          class="cover-start-btn"
-          :disabled="totalSteps === 0"
-          @click="startStepByStep(0)"
-        >
-          <Play :size="18" aria-hidden="true" />
-          Commencer
-        </Button>
-      </div>
-
-      <template v-else>
-        <div
-          v-if="coverShowIngredients"
-          class="cover-scroll"
-          aria-label="Ingrédients sur écran externe"
-        >
-          <ul class="cooking-ingredients">
-            <li
-              v-for="(item, index) in activeRecipe.ingredients"
-              :key="`cover-${item.name}-${index}`"
-              class="cooking-ingredient"
-              :class="{ 'is-checked': isIngredientChecked(index) }"
-            >
-              <button
-                type="button"
-                class="cooking-ingredient__btn"
-                :aria-pressed="isIngredientChecked(index)"
-                @click="toggleIngredient(index)"
-              >
-                <span class="cooking-ingredient__check" aria-hidden="true">
-                  <Check v-if="isIngredientChecked(index)" :size="14" />
-                </span>
-                <span class="cooking-ingredient__text">
-                  <strong v-if="item.quantity"
-                    >{{ item.quantity }}<span v-if="item.unit"> {{ item.unit }}</span></strong
-                  >
-                  {{ item.name }}
-                </span>
-              </button>
-            </li>
-          </ul>
-        </div>
-
-        <div
-          v-else
-          class="cover-scroll"
-          @touchstart.passive="handleTouchStart"
-          @touchend.passive="handleTouchEnd"
-        >
-          <template v-if="finished">
-            <div class="cover-done">
-              <CheckCircle2 :size="32" aria-hidden="true" />
-              <strong>Bon appétit !</strong>
-              <Button type="button" variant="secondary" @click="goToStep(0)">Étape 1</Button>
-            </div>
-          </template>
-          <template v-else>
-            <h3 v-if="currentStepStructured.title" class="cover-step-title">
-              {{ currentStepStructured.title }}
-            </h3>
-            <div class="cover-step-lines">
-              <p
-                v-for="(line, lineIdx) in currentStepStructured.lines"
-                :key="`cover-line-${currentStep}-${lineIdx}`"
-              >
-                {{ line }}
-              </p>
-            </div>
-            <div v-if="currentStepTimers.length" class="cover-timers">
-              <button
-                v-for="detected in currentStepTimers"
-                :key="`cover-timer-${detected.minutes}-${detected.label}`"
-                type="button"
-                class="cover-timer-btn"
-                @click="startTimer(detected.label, detected.minutes)"
-              >
-                <Timer :size="15" aria-hidden="true" />
-                {{ detected.minutes }} min
-              </button>
-            </div>
-          </template>
-        </div>
-
-        <footer class="cover-footer">
-          <button
-            type="button"
-            class="cover-nav-btn"
-            aria-label="Étape précédente"
-            :disabled="currentStep === 0 && !finished"
-            @click="previousStep"
-          >
-            <ArrowLeft :size="20" aria-hidden="true" />
-          </button>
-
-          <div class="cover-step-dots" role="group" aria-label="Saut direct d’étape">
-            <button
-              v-for="(_, idx) in activeRecipe.steps"
-              :key="`cover-pill-${idx}`"
-              type="button"
-              class="cover-step-pill"
-              :class="{
-                'is-current': !finished && idx === currentStep,
-                'is-done': finished || idx < currentStep,
-              }"
-              :aria-label="`Aller à l’étape ${idx + 1} sur ${totalSteps}`"
-              @click="goToStep(idx)"
-            >
-              {{ idx + 1 }}
-            </button>
-          </div>
-
-          <button
-            type="button"
-            class="cover-nav-btn cover-nav-btn--primary"
-            :aria-label="currentStep === totalSteps - 1 ? 'Terminer' : 'Étape suivante'"
-            @click="nextStep"
-          >
-            <Check v-if="currentStep === totalSteps - 1" :size="20" aria-hidden="true" />
-            <ArrowRight v-else :size="20" aria-hidden="true" />
-          </button>
-        </footer>
-      </template>
-    </div>
+    <CookingCoverStage
+      v-if="isCoverScreen && activeRecipe"
+      :recipe="activeRecipe"
+      :phase="phase"
+      :current-step="currentStep"
+      :total-steps="totalSteps"
+      :finished="finished"
+      :checked-count="checkedCount"
+      :current-step-structured="currentStepStructured"
+      :current-step-timers="currentStepTimers"
+      :is-ingredient-checked="isIngredientChecked"
+      @start="startStepByStep(0)"
+      @previous-step="previousStep"
+      @next-step="nextStep"
+      @go-to-step="goToStep"
+      @toggle-ingredient="toggleIngredient"
+      @launch-timer="launchStepTimer"
+    />
 
     <!-- FLEX MODE (Z FLIP 7/8 HALF-FOLDED AT 90 DEG) -->
     <div v-else-if="isFlexMode && phase === 'steps' && activeRecipe" class="flex-stage">
@@ -589,10 +603,10 @@ onBeforeUnmount(() => {
               :key="`flex-timer-${detected.minutes}-${detected.label}`"
               type="button"
               class="timer-chip"
-              @click="startTimer(detected.label, detected.minutes)"
+              @click="launchStepTimer(detected.label, detected.minutes)"
             >
               <Timer :size="17" aria-hidden="true" />
-              <span>Lancer · {{ detected.label }} ({{ detected.minutes }} min)</span>
+              <span>Lancer · {{ detected.label }} ({{ detected.durationLabel }})</span>
             </button>
           </div>
 
@@ -672,7 +686,7 @@ onBeforeUnmount(() => {
           <label v-if="houseRecipes.length" class="cooking-switcher">
             <span class="sr-only">Choisir une autre recette</span>
             <select
-              :value="typeof route.query['recipe'] === 'string' ? route.query['recipe'] : ''"
+              :value="activeRecipe?.key.startsWith('recipe:') ? activeRecipe.id : ''"
               @change="selectRecipeById(($event.target as HTMLSelectElement).value)"
             >
               <option value="">
@@ -929,10 +943,10 @@ onBeforeUnmount(() => {
                     :key="`timer-${detected.minutes}-${detected.label}`"
                     type="button"
                     class="timer-chip"
-                    @click="startTimer(detected.label, detected.minutes)"
+                    @click="launchStepTimer(detected.label, detected.minutes)"
                   >
                     <Timer :size="17" aria-hidden="true" />
-                    <span>Lancer · {{ detected.label }} ({{ detected.minutes }} min)</span>
+                    <span>Lancer · {{ detected.label }} ({{ detected.durationLabel }})</span>
                   </button>
                 </div>
               </div>
@@ -1007,19 +1021,34 @@ onBeforeUnmount(() => {
       </div>
     </template>
 
-    <!-- FLOATING MULTI-TIMER TOAST DOCK -->
-    <CookingTimerDock
-      :timers="activeTimers"
-      :flex-mode="isFlexMode && phase === 'steps'"
-      :cover-mode="isCoverScreen"
-      @toggle-pause="togglePause"
-      @add-minute="addMinute"
-      @dismiss="dismissTimer"
-    />
+    <ModalDialog
+      v-if="pendingSwitchRecipe && session"
+      v-model:open="switchModalOpen"
+      title="Une recette est déjà en cours"
+      badge="Mode cuisine"
+      size="md"
+    >
+      <p class="cooking-switch-modal__text">
+        La recette <strong>« {{ session.recipe.title }} »</strong> est déjà en cours<template
+          v-if="session.phase === 'steps'"
+        >
+          (étape {{ session.currentStep + 1 }} sur {{ session.recipe.steps.length }})</template
+        >. Voulez-vous l’annuler pour lancer <strong>« {{ pendingSwitchRecipe.title }} »</strong> ?
+      </p>
+      <p class="cooking-switch-modal__note">
+        Les minuteurs liés à cette recette et votre progression en cours seront supprimés.
+      </p>
+      <template #footer>
+        <Button variant="secondary" @click="cancelSwitchRecipe">
+          Continuer « {{ session.recipe.title }} »
+        </Button>
+        <Button @click="confirmSwitchRecipe">Oui, annuler et lancer</Button>
+      </template>
+    </ModalDialog>
   </section>
 </template>
 
-<style scoped lang="scss">
+<style scoped>
 .cooking-stage {
   display: grid;
   grid-template-rows: auto 1fr;
@@ -1028,6 +1057,19 @@ onBeforeUnmount(() => {
   min-height: calc(100dvh - 3rem);
   min-width: 0;
   color: var(--q-forest);
+}
+
+.cooking-switch-modal__text {
+  margin: 0;
+  font-size: var(--q-type-body);
+  line-height: var(--q-line-body);
+}
+
+.cooking-switch-modal__note {
+  margin: var(--q-space-2) 0 0;
+  color: var(--q-leaf);
+  font-size: var(--q-type-body-small);
+  line-height: var(--q-line-body);
 }
 
 .cooking-topbar {
@@ -1040,28 +1082,26 @@ onBeforeUnmount(() => {
   border-radius: var(--q-radius-card);
   background: var(--q-forest);
   color: var(--q-peach);
-
-  &__left,
-  &__right {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--q-space-2);
-    min-width: 0;
-  }
-
-  &__badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    padding: 0.4rem 0.75rem;
-    border-radius: var(--q-radius-control);
-    background: var(--q-coral);
-    color: var(--q-forest);
-    font-family: var(--q-font-display);
-    font-size: var(--q-type-label);
-    font-weight: 800;
-  }
+}
+.cooking-topbar__left,
+.cooking-topbar__right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--q-space-2);
+  min-width: 0;
+}
+.cooking-topbar__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: var(--q-radius-control);
+  background: var(--q-coral);
+  color: var(--q-forest);
+  font-family: var(--q-font-display);
+  font-size: var(--q-type-label);
+  font-weight: 800;
 }
 
 .cooking-switcher select {
@@ -1090,18 +1130,18 @@ onBeforeUnmount(() => {
   font-family: var(--q-font-display);
   font-size: var(--q-type-body-small);
   font-weight: 700;
-
-  &:hover {
-    background: var(--q-shoot);
-    border-color: var(--q-shoot);
-    color: var(--q-forest);
-  }
-
-  &.is-active {
-    background: var(--q-shoot);
-    border-color: var(--q-shoot);
-    color: var(--q-forest);
-  }
+}
+.wake-pill:hover,
+.cooking-mode-btn:hover {
+  background: var(--q-shoot);
+  border-color: var(--q-shoot);
+  color: var(--q-forest);
+}
+.wake-pill.is-active,
+.cooking-mode-btn.is-active {
+  background: var(--q-shoot);
+  border-color: var(--q-shoot);
+  color: var(--q-forest);
 }
 
 .cooking-state,
@@ -1115,25 +1155,26 @@ onBeforeUnmount(() => {
   border-radius: var(--q-radius-card);
   background: var(--q-peach);
   text-align: center;
-
-  h2,
-  p {
-    margin: 0;
-    max-width: 52ch;
-  }
-
-  &--error {
-    border-color: var(--q-tomato);
-    font-weight: 700;
-  }
-
-  &__actions {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: var(--q-space-3);
-    margin-top: var(--q-space-2);
-  }
+}
+.cooking-state h2,
+.cooking-state p,
+.cooking-empty h2,
+.cooking-empty p {
+  margin: 0;
+  max-width: 52ch;
+}
+.cooking-state--error,
+.cooking-empty--error {
+  border-color: var(--q-tomato);
+  font-weight: 700;
+}
+.cooking-state__actions,
+.cooking-empty__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--q-space-3);
+  margin-top: var(--q-space-2);
 }
 
 .cooking-link-cta,
@@ -1160,57 +1201,51 @@ onBeforeUnmount(() => {
   color: var(--q-forest);
 }
 
-// PHASE 1: OVERVIEW (iPad Landscape optimized 2-column split)
 .cooking-overview {
   display: grid;
   grid-template-columns: minmax(0, 1.08fr) minmax(19rem, 0.92fr);
   gap: var(--q-space-4);
   align-items: start;
   min-width: 0;
-
-  @media (max-width: 54rem) {
+}
+@media (max-width: 54rem) {
+  .cooking-overview {
     grid-template-columns: 1fr;
   }
-
-  &__left {
-    display: grid;
-    gap: var(--q-space-4);
-    padding: var(--q-space-4);
-    border: 2px solid var(--q-forest);
-    border-radius: var(--q-radius-card);
-    background: var(--q-peach);
-    min-width: 0;
-  }
-
-  &__right {
-    display: grid;
-    gap: var(--q-space-4);
-    min-width: 0;
-  }
-
-  &__head {
-    display: grid;
-    gap: var(--q-space-2);
-
-    h2 {
-      margin: 0;
-      font-family: var(--q-font-display);
-      font-size: var(--q-type-h3);
-      font-weight: 800;
-      line-height: 1.1;
-      text-wrap: balance;
-    }
-  }
-
-  &__desc {
-    margin: 0;
-    font-size: var(--q-type-body);
-    line-height: var(--q-line-body);
-  }
-
-  &__cta {
-    display: flex;
-  }
+}
+.cooking-overview__left {
+  display: grid;
+  gap: var(--q-space-4);
+  padding: var(--q-space-4);
+  border: 2px solid var(--q-forest);
+  border-radius: var(--q-radius-card);
+  background: var(--q-peach);
+  min-width: 0;
+}
+.cooking-overview__right {
+  display: grid;
+  gap: var(--q-space-4);
+  min-width: 0;
+}
+.cooking-overview__head {
+  display: grid;
+  gap: var(--q-space-2);
+}
+.cooking-overview__head h2 {
+  margin: 0;
+  font-family: var(--q-font-display);
+  font-size: var(--q-type-h3);
+  font-weight: 800;
+  line-height: 1.1;
+  text-wrap: balance;
+}
+.cooking-overview__desc {
+  margin: 0;
+  font-size: var(--q-type-body);
+  line-height: var(--q-line-body);
+}
+.cooking-overview__cta {
+  display: flex;
 }
 
 .cooking-photo {
@@ -1220,34 +1255,31 @@ onBeforeUnmount(() => {
   overflow: hidden;
   border-radius: var(--q-radius-card);
   background: var(--q-sage);
-
-  img {
-    display: block;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-
-  &__empty {
-    display: grid;
-    width: 100%;
-    height: 100%;
-    place-items: center;
-    color: var(--q-leaf);
-  }
-
-  &__source {
-    position: absolute;
-    top: var(--q-space-3);
-    left: var(--q-space-3);
-    padding: 0.25rem 0.65rem;
-    border-radius: var(--q-radius-control);
-    background: var(--q-forest);
-    color: var(--q-peach);
-    font-family: var(--q-font-display);
-    font-size: var(--q-type-metadata);
-    font-weight: 800;
-  }
+}
+.cooking-photo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.cooking-photo__empty {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  color: var(--q-leaf);
+}
+.cooking-photo__source {
+  position: absolute;
+  top: var(--q-space-3);
+  left: var(--q-space-3);
+  padding: 0.25rem 0.65rem;
+  border-radius: var(--q-radius-control);
+  background: var(--q-forest);
+  color: var(--q-peach);
+  font-family: var(--q-font-display);
+  font-size: var(--q-type-metadata);
+  font-weight: 800;
 }
 
 .cooking-times {
@@ -1255,8 +1287,9 @@ onBeforeUnmount(() => {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--q-space-2);
   margin: 0;
-
-  @media (max-width: 72rem) {
+}
+@media (max-width: 72rem) {
+  .cooking-times {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -1268,32 +1301,28 @@ onBeforeUnmount(() => {
   border: 1px solid var(--q-forest);
   border-radius: var(--q-radius-control);
   background: var(--q-sage);
-
-  dt {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    font-size: var(--q-type-metadata);
-    font-weight: 700;
-    color: var(--q-forest);
-  }
-
-  dd {
-    margin: 0;
-    font-family: var(--q-font-display);
-    font-size: var(--q-type-h4);
-    font-weight: 800;
-    font-variant-numeric: tabular-nums;
-  }
-
-  &--primary {
-    background: var(--q-forest);
-    color: var(--q-peach);
-
-    dt {
-      color: var(--q-shoot);
-    }
-  }
+}
+.cooking-time-card dt {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: var(--q-type-metadata);
+  font-weight: 700;
+  color: var(--q-forest);
+}
+.cooking-time-card dd {
+  margin: 0;
+  font-family: var(--q-font-display);
+  font-size: var(--q-type-h4);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.cooking-time-card--primary {
+  background: var(--q-forest);
+  color: var(--q-peach);
+}
+.cooking-time-card--primary dt {
+  color: var(--q-shoot);
 }
 
 .cooking-start-btn {
@@ -1310,32 +1339,28 @@ onBeforeUnmount(() => {
   border-radius: var(--q-radius-card);
   background: var(--q-peach);
   min-width: 0;
-
-  &--full {
-    height: 100%;
-    align-content: start;
-  }
-
-  &__head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--q-space-2);
-    padding-bottom: var(--q-space-2);
-    border-bottom: 1px solid var(--q-leaf);
-
-    h3 {
-      margin: 0;
-      font-family: var(--q-font-display);
-      font-size: var(--q-type-h4);
-      font-weight: 800;
-    }
-  }
-
-  &__empty {
-    margin: 0;
-    color: var(--q-leaf);
-  }
+}
+.cooking-panel--full {
+  height: 100%;
+  align-content: start;
+}
+.cooking-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--q-space-2);
+  padding-bottom: var(--q-space-2);
+  border-bottom: 1px solid var(--q-leaf);
+}
+.cooking-panel__head h3 {
+  margin: 0;
+  font-family: var(--q-font-display);
+  font-size: var(--q-type-h4);
+  font-weight: 800;
+}
+.cooking-panel__empty {
+  margin: 0;
+  color: var(--q-leaf);
 }
 
 .cooking-counter {
@@ -1358,58 +1383,48 @@ onBeforeUnmount(() => {
   overflow-y: auto;
 }
 
-.cooking-ingredient {
-  &__btn {
-    display: flex;
-    align-items: center;
-    gap: var(--q-space-3);
-    width: 100%;
-    min-height: 46px;
-    padding: var(--q-space-2) var(--q-space-3);
-    border: 1px solid var(--q-forest);
-    border-radius: var(--q-radius-control);
-    background: var(--q-sage);
-    color: var(--q-forest);
-    text-align: left;
-    font-size: var(--q-type-body-small);
-    font-weight: 600;
-    line-height: var(--q-line-compact);
-
-    &:hover {
-      background: var(--q-shoot);
-    }
-  }
-
-  &__check {
-    display: grid;
-    place-items: center;
-    flex: none;
-    width: 24px;
-    height: 24px;
-    border: 2px solid var(--q-forest);
-    border-radius: var(--q-radius-control);
-    background: var(--q-peach);
-    color: var(--q-forest);
-  }
-
-  &.is-checked {
-    .cooking-ingredient__btn {
-      background: var(--q-shoot);
-    }
-
-    .cooking-ingredient__check {
-      background: var(--q-forest);
-      color: var(--q-peach);
-    }
-
-    .cooking-ingredient__text {
-      text-decoration: line-through;
-      opacity: 0.78;
-    }
-  }
+.cooking-ingredient__btn {
+  display: flex;
+  align-items: center;
+  gap: var(--q-space-3);
+  width: 100%;
+  min-height: 46px;
+  padding: var(--q-space-2) var(--q-space-3);
+  border: 1px solid var(--q-forest);
+  border-radius: var(--q-radius-control);
+  background: var(--q-sage);
+  color: var(--q-forest);
+  text-align: left;
+  font-size: var(--q-type-body-small);
+  font-weight: 600;
+  line-height: var(--q-line-compact);
+}
+.cooking-ingredient__btn:hover {
+  background: var(--q-shoot);
+}
+.cooking-ingredient__check {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--q-forest);
+  border-radius: var(--q-radius-control);
+  background: var(--q-peach);
+  color: var(--q-forest);
+}
+.cooking-ingredient.is-checked .cooking-ingredient__btn {
+  background: var(--q-shoot);
+}
+.cooking-ingredient.is-checked .cooking-ingredient__check {
+  background: var(--q-forest);
+  color: var(--q-peach);
+}
+.cooking-ingredient.is-checked .cooking-ingredient__text {
+  text-decoration: line-through;
+  opacity: 0.78;
 }
 
-// PHASE 2: STEP-BY-STEP MODE (High contrast iPad Landscape)
 .cooking-steps-layout {
   display: grid;
   grid-template-rows: auto 1fr;
@@ -1430,10 +1445,9 @@ onBeforeUnmount(() => {
   display: flex;
   flex-wrap: wrap;
   gap: var(--q-space-2);
-
-  &--bar {
-    flex-wrap: nowrap;
-  }
+}
+.step-rail--bar {
+  flex-wrap: nowrap;
 }
 
 .step-pill {
@@ -1453,22 +1467,19 @@ onBeforeUnmount(() => {
   font-size: 1rem;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
-
-  &:hover {
-    background: var(--q-shoot);
-  }
-
-  &.is-done {
-    background: var(--q-forest);
-    border-color: var(--q-forest);
-    color: var(--q-shoot);
-  }
-
-  &.is-current {
-    background: var(--q-coral);
-    border-color: var(--q-forest);
-    color: var(--q-forest);
-  }
+}
+.step-pill:hover {
+  background: var(--q-shoot);
+}
+.step-pill.is-done {
+  background: var(--q-forest);
+  border-color: var(--q-forest);
+  color: var(--q-shoot);
+}
+.step-pill.is-current {
+  background: var(--q-coral);
+  border-color: var(--q-forest);
+  color: var(--q-forest);
 }
 
 .cooking-steps-grid {
@@ -1478,8 +1489,9 @@ onBeforeUnmount(() => {
   align-items: stretch;
   min-height: 0;
   min-width: 0;
-
-  @media (max-width: 54rem) {
+}
+@media (max-width: 54rem) {
+  .cooking-steps-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -1492,79 +1504,71 @@ onBeforeUnmount(() => {
   border-radius: var(--q-radius-card);
   background: var(--q-peach);
   min-width: 0;
-
-  &__header {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--q-space-2);
-    padding: var(--q-space-3) var(--q-space-6);
-    background: var(--q-forest);
-    color: var(--q-peach);
-  }
-
-  &__kicker {
-    padding: 0.25rem 0.65rem;
-    border-radius: var(--q-radius-control);
-    background: var(--q-shoot);
-    color: var(--q-forest);
-    font-family: var(--q-font-display);
-    font-size: var(--q-type-label);
-    font-weight: 800;
-  }
-
-  &__dish {
-    font-family: var(--q-font-display);
-    font-size: var(--q-type-label);
-    font-weight: 700;
-    color: var(--q-peach);
-  }
-
-  &__body {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: var(--q-space-4);
-    padding: clamp(1.25rem, 2.5vw, 2rem);
-  }
-
-  &__heading {
-    margin: 0;
-    font-family: var(--q-font-display);
-    font-size: var(--q-type-h3);
-    font-weight: 800;
-    color: var(--q-forest);
-  }
-
-  &__lines {
-    display: grid;
-    gap: var(--q-space-3);
-  }
-
-  &__text {
-    margin: 0;
-    font-family: var(--q-font-body);
-    font-size: var(--q-type-body-large);
-    font-weight: 600;
-    line-height: 1.5;
-    color: var(--q-forest);
-    text-wrap: pretty;
-  }
+}
+.step-stage__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--q-space-2);
+  padding: var(--q-space-3) var(--q-space-6);
+  background: var(--q-forest);
+  color: var(--q-peach);
+}
+.step-stage__kicker {
+  padding: 0.25rem 0.65rem;
+  border-radius: var(--q-radius-control);
+  background: var(--q-shoot);
+  color: var(--q-forest);
+  font-family: var(--q-font-display);
+  font-size: var(--q-type-label);
+  font-weight: 800;
+}
+.step-stage__dish {
+  font-family: var(--q-font-display);
+  font-size: var(--q-type-label);
+  font-weight: 700;
+  color: var(--q-peach);
+}
+.step-stage__body {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--q-space-4);
+  padding: clamp(1.25rem, 2.5vw, 2rem);
+}
+.step-stage__heading {
+  margin: 0;
+  font-family: var(--q-font-display);
+  font-size: var(--q-type-h3);
+  font-weight: 800;
+  color: var(--q-forest);
+}
+.step-stage__lines {
+  display: grid;
+  gap: var(--q-space-3);
+}
+.step-stage__text {
+  margin: 0;
+  font-family: var(--q-font-body);
+  font-size: var(--q-type-body-large);
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--q-forest);
+  text-wrap: pretty;
 }
 
 .step-progress {
   height: 8px;
   background: var(--q-sage);
   overflow: hidden;
-
-  &__fill {
-    width: 100%;
-    height: 100%;
-    transform-origin: left center;
-    background: var(--q-coral);
-    transition: transform 220ms var(--q-ease-standard);
-  }
+}
+.step-progress__fill {
+  width: 100%;
+  height: 100%;
+  transform-origin: left center;
+  background: var(--q-coral);
+  transition: transform 220ms var(--q-ease-standard);
 }
 
 .step-timers {
@@ -1588,10 +1592,9 @@ onBeforeUnmount(() => {
   font-family: var(--q-font-display);
   font-size: var(--q-type-body-small);
   font-weight: 800;
-
-  &:hover {
-    background: var(--q-coral);
-  }
+}
+.timer-chip:hover {
+  background: var(--q-coral);
 }
 
 .step-nav {
@@ -1602,18 +1605,16 @@ onBeforeUnmount(() => {
   padding: var(--q-space-4) var(--q-space-6);
   border-top: 2px solid var(--q-forest);
   background: var(--q-sage);
-
-  &__btn {
-    min-height: 56px;
-    font-size: var(--q-type-body-large);
-  }
-
-  &__counter {
-    font-family: var(--q-font-display);
-    font-size: var(--q-type-body-large);
-    font-weight: 800;
-    font-variant-numeric: tabular-nums;
-  }
+}
+.step-nav__btn {
+  min-height: 56px;
+  font-size: var(--q-type-body-large);
+}
+.step-nav__counter {
+  font-family: var(--q-font-display);
+  font-size: var(--q-type-body-large);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
 }
 
 .step-done {
@@ -1623,34 +1624,29 @@ onBeforeUnmount(() => {
   gap: var(--q-space-4);
   padding: var(--q-space-8);
   text-align: center;
-
-  &__icon {
-    color: var(--q-leaf);
-  }
-
-  h2,
-  p {
-    margin: 0;
-  }
-
-  &__actions {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: var(--q-space-3);
-  }
+}
+.step-done__icon {
+  color: var(--q-leaf);
+}
+.step-done h2,
+.step-done p {
+  margin: 0;
+}
+.step-done__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--q-space-3);
 }
 
 .cooking-side-ingredients {
   min-width: 0;
-
-  .cooking-ingredients {
-    max-height: calc(100vh - 17rem);
-    max-height: calc(100dvh - 17rem);
-  }
+}
+.cooking-side-ingredients .cooking-ingredients {
+  max-height: calc(100vh - 17rem);
+  max-height: calc(100dvh - 17rem);
 }
 
-// SAMSUNG GALAXY Z FLIP 7/8 — FLEX MODE (HALF-FOLDED 90°)
 .cooking-stage--flex {
   display: block;
   min-height: 100vh;
@@ -1676,22 +1672,18 @@ onBeforeUnmount(() => {
   overflow: hidden;
   border-bottom: 2px solid var(--q-forest);
   background: var(--q-peach);
-
-  &__body {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: var(--q-space-3);
-    overflow-y: auto;
-    padding: var(--q-space-4);
-  }
+}
+.flex-top-screen__body {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--q-space-3);
+  overflow-y: auto;
+  padding: var(--q-space-4);
 }
 
 .flex-hinge-gap {
-  height: max(
-    0px,
-    calc(env(viewport-segment-top 0 1, 48dvh) - env(viewport-segment-height 0 0, 48dvh))
-  );
+  height: max(0px, env(viewport-segment-top 0 1, 48dvh) - env(viewport-segment-height 0 0, 48dvh));
   flex: none;
   background: var(--q-forest);
 }
@@ -1706,10 +1698,9 @@ onBeforeUnmount(() => {
   padding: var(--q-space-3);
   padding-bottom: max(var(--q-space-3), env(safe-area-inset-bottom));
   background: var(--q-canvas);
-
-  &__rail {
-    overflow-x: auto;
-  }
+}
+.flex-bottom-deck__rail {
+  overflow-x: auto;
 }
 
 .flex-deck-tabs {
@@ -1728,11 +1719,10 @@ onBeforeUnmount(() => {
   font-family: var(--q-font-display);
   font-size: var(--q-type-body-small);
   font-weight: 800;
-
-  &.is-active {
-    background: var(--q-forest);
-    color: var(--q-shoot);
-  }
+}
+.flex-deck-tab.is-active {
+  background: var(--q-forest);
+  color: var(--q-shoot);
 }
 
 .flex-deck-controls {
@@ -1774,13 +1764,11 @@ onBeforeUnmount(() => {
 .flex-deck-ingredients {
   min-height: 0;
   overflow-y: auto;
-
-  .cooking-ingredients {
-    max-height: none;
-  }
+}
+.flex-deck-ingredients .cooking-ingredients {
+  max-height: none;
 }
 
-// SAMSUNG GALAXY Z FLIP 7/8 — COVER SCREEN / FLEXWINDOW (4.1" ~360x398)
 .cooking-stage--cover {
   display: block;
   min-height: 100vh;
@@ -1788,204 +1776,5 @@ onBeforeUnmount(() => {
   height: 100vh;
   height: 100dvh;
   overflow: hidden;
-}
-
-.cover-stage {
-  display: grid;
-  grid-template-rows: auto 1fr auto;
-  height: 100vh;
-  height: 100dvh;
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
-    env(safe-area-inset-left);
-  background: var(--q-peach);
-  color: var(--q-forest);
-}
-
-.cover-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--q-space-2);
-  padding: var(--q-space-2) var(--q-space-3);
-  background: var(--q-forest);
-  color: var(--q-peach);
-
-  &__step {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    font-family: var(--q-font-display);
-    font-size: var(--q-type-label);
-    font-weight: 800;
-    color: var(--q-shoot);
-    font-variant-numeric: tabular-nums;
-  }
-}
-
-.cover-toggle-btn {
-  min-height: 36px;
-  padding: 0 var(--q-space-2);
-  border: 1px solid var(--q-shoot);
-  border-radius: var(--q-radius-control);
-  background: transparent;
-  color: var(--q-peach);
-  font-family: var(--q-font-display);
-  font-size: var(--q-type-metadata);
-  font-weight: 700;
-
-  &[aria-pressed='true'] {
-    background: var(--q-shoot);
-    color: var(--q-forest);
-  }
-}
-
-.cover-overview {
-  grid-row: 2 / 4;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: var(--q-space-3);
-  padding: var(--q-space-4);
-
-  &__title {
-    margin: 0;
-    font-family: var(--q-font-display);
-    font-size: var(--q-type-h4);
-    font-weight: 800;
-    line-height: 1.15;
-  }
-
-  &__meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--q-space-2);
-
-    span {
-      padding: 0.25rem 0.55rem;
-      border-radius: var(--q-radius-control);
-      background: var(--q-sage);
-      font-size: var(--q-type-metadata);
-      font-weight: 800;
-    }
-  }
-}
-
-.cover-start-btn {
-  width: 100%;
-  min-height: 52px;
-}
-
-.cover-scroll {
-  min-height: 0;
-  overflow-y: auto;
-  padding: var(--q-space-3);
-  display: grid;
-  align-content: start;
-  gap: var(--q-space-2);
-}
-
-.cover-step-title {
-  margin: 0;
-  font-family: var(--q-font-display);
-  font-size: var(--q-type-body-large);
-  font-weight: 800;
-}
-
-.cover-step-lines {
-  display: grid;
-  gap: var(--q-space-2);
-
-  p {
-    margin: 0;
-    font-size: var(--q-type-body);
-    font-weight: 600;
-    line-height: 1.4;
-  }
-}
-
-.cover-timers {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--q-space-2);
-  margin-top: var(--q-space-1);
-}
-
-.cover-timer-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  min-height: 40px;
-  padding: 0 var(--q-space-3);
-  border: 2px solid var(--q-forest);
-  border-radius: var(--q-radius-control);
-  background: var(--q-shoot);
-  color: var(--q-forest);
-  font-family: var(--q-font-display);
-  font-size: var(--q-type-body-small);
-  font-weight: 800;
-}
-
-.cover-done {
-  display: grid;
-  place-items: center;
-  gap: var(--q-space-3);
-  padding: var(--q-space-4);
-  text-align: center;
-}
-
-.cover-footer {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: var(--q-space-2);
-  padding: var(--q-space-2);
-  border-top: 2px solid var(--q-forest);
-  background: var(--q-sage);
-}
-
-.cover-nav-btn {
-  display: grid;
-  place-items: center;
-  min-width: 48px;
-  min-height: 48px;
-  border: 2px solid var(--q-forest);
-  border-radius: var(--q-radius-control);
-  background: var(--q-peach);
-  color: var(--q-forest);
-
-  &--primary {
-    background: var(--q-forest);
-    color: var(--q-peach);
-  }
-}
-
-.cover-step-dots {
-  display: flex;
-  justify-content: center;
-  gap: var(--q-space-1);
-  overflow-x: auto;
-}
-
-.cover-step-pill {
-  min-width: 34px;
-  min-height: 36px;
-  padding: 0 0.35rem;
-  border: 1px solid var(--q-forest);
-  border-radius: var(--q-radius-control);
-  background: var(--q-peach);
-  color: var(--q-forest);
-  font-family: var(--q-font-display);
-  font-size: var(--q-type-metadata);
-  font-weight: 800;
-
-  &.is-done {
-    background: var(--q-forest);
-    color: var(--q-shoot);
-  }
-
-  &.is-current {
-    background: var(--q-coral);
-    color: var(--q-forest);
-  }
 }
 </style>

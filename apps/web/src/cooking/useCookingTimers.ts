@@ -1,18 +1,17 @@
-import { onBeforeUnmount, readonly, ref } from 'vue'
+import { readonly, ref } from 'vue'
 
 export type CookingTimer = {
   id: number
+  recipeKey: string | null
   label: string
   totalSeconds: number
   remainingSeconds: number
+  endsAtMs: number | null
   running: boolean
   done: boolean
 }
 
-export type DetectedStepTimer = {
-  minutes: number
-  label: string
-}
+const TIMERS_STORAGE_KEY = 'quisera:cooking-timers-v1'
 
 function playCompletionChime() {
   if (typeof window === 'undefined') return
@@ -39,49 +38,12 @@ function playCompletionChime() {
       osc.start(now + offset)
       osc.stop(now + offset + 0.24)
     }
+    window.setTimeout(() => {
+      void ctx.close().catch(() => {})
+    }, 800)
   } catch {
     // Ignore audio context restrictions if blocked by browser autoplay policy.
   }
-}
-
-export function extractNamedStepTimers(
-  stepTitle: string | null,
-  lines: readonly string[],
-  stepNumber: number,
-): DetectedStepTimer[] {
-  const results: DetectedStepTimer[] = []
-  const seenMinutes = new Set<number>()
-  const rx = /(\d{1,3})\s*(?:min(?:utes?)?|mn)\b/gi
-
-  for (const line of lines) {
-    for (const match of line.matchAll(rx)) {
-      const minutes = Number(match[1])
-      if (!Number.isFinite(minutes) || minutes < 1 || minutes > 240 || seenMinutes.has(minutes)) {
-        continue
-      }
-      seenMinutes.add(minutes)
-
-      // Build a short, meaningful French label from the step title or the clause before the duration
-      let label = stepTitle?.trim() || ''
-      if (!label) {
-        const before = line.slice(0, match.index ?? 0).trim()
-        const clause = before
-          .split(/[.!?;,]/)
-          .map((part) => part.trim())
-          .filter(Boolean)
-          .at(-1)
-        if (clause && clause.length >= 4) {
-          label = clause.length > 36 ? `${clause.slice(0, 35).trimEnd()}…` : clause
-        }
-      }
-      if (!label) label = `Étape ${stepNumber}`
-
-      results.push({ minutes, label })
-      if (results.length >= 4) return results
-    }
-  }
-
-  return results
 }
 
 export function formatCountdown(seconds: number): string {
@@ -94,95 +56,241 @@ export function formatCountdown(seconds: number): string {
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
 }
 
-export function useCookingTimers() {
-  const timers = ref<CookingTimer[]>([])
-  let nextId = 1
-  let ticker: number | null = null
+function loadStoredTimers(): { list: CookingTimer[]; maxId: number } {
+  if (typeof window === 'undefined') return { list: [], maxId: 0 }
+  try {
+    const raw = window.localStorage.getItem(TIMERS_STORAGE_KEY)
+    if (!raw) return { list: [], maxId: 0 }
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return { list: [], maxId: 0 }
+    const now = Date.now()
+    let maxId = 0
+    const list: CookingTimer[] = []
 
-  function ensureTicker() {
-    if (ticker !== null || typeof window === 'undefined') return
-    ticker = window.setInterval(() => {
-      let anyRunning = false
-      let anyFinishedNow = false
-      timers.value = timers.value.map((timer) => {
-        if (!timer.running || timer.done) return timer
-        if (timer.remainingSeconds <= 1) {
-          anyFinishedNow = true
-          return { ...timer, remainingSeconds: 0, running: false, done: true }
+    for (const entry of parsed) {
+      if (!entry || typeof entry !== 'object') continue
+      const r = entry as Record<string, unknown>
+      const id = typeof r['id'] === 'number' ? r['id'] : 0
+      const label = typeof r['label'] === 'string' ? r['label'] : 'Minuteur'
+      const totalSeconds = typeof r['totalSeconds'] === 'number' ? r['totalSeconds'] : 60
+      let remainingSeconds =
+        typeof r['remainingSeconds'] === 'number' ? r['remainingSeconds'] : totalSeconds
+      let running = Boolean(r['running'])
+      let done = Boolean(r['done'])
+      const endsAtMs = typeof r['endsAtMs'] === 'number' ? r['endsAtMs'] : null
+      const recipeKey = typeof r['recipeKey'] === 'string' ? r['recipeKey'] : null
+
+      if (id <= 0) continue
+      if (id > maxId) maxId = id
+
+      if (running && endsAtMs !== null) {
+        const left = Math.max(0, Math.ceil((endsAtMs - now) / 1000))
+        remainingSeconds = left
+        if (left <= 0) {
+          running = false
+          done = true
         }
-        anyRunning = true
-        return { ...timer, remainingSeconds: timer.remainingSeconds - 1 }
-      })
-      if (anyFinishedNow) playCompletionChime()
-      if (!anyRunning && ticker !== null) {
-        window.clearInterval(ticker)
-        ticker = null
       }
-    }, 1000)
+
+      list.push({
+        id,
+        recipeKey,
+        label,
+        totalSeconds,
+        remainingSeconds,
+        endsAtMs: running ? endsAtMs : null,
+        running,
+        done,
+      })
+    }
+
+    return { list, maxId }
+  } catch {
+    return { list: [], maxId: 0 }
+  }
+}
+
+const initialTimers = loadStoredTimers()
+const globalTimers = ref<CookingTimer[]>(initialTimers.list)
+let nextTimerId = initialTimers.maxId + 1
+let globalTicker: number | null = null
+
+function persistTimers() {
+  if (typeof window === 'undefined') return
+  try {
+    if (globalTimers.value.length === 0) {
+      window.localStorage.removeItem(TIMERS_STORAGE_KEY)
+    } else {
+      window.localStorage.setItem(TIMERS_STORAGE_KEY, JSON.stringify(globalTimers.value))
+    }
+  } catch {
+    // Ignore storage quota errors
+  }
+}
+
+function tickGlobalTimers() {
+  const now = Date.now()
+  let anyRunning = false
+  let anyFinishedNow = false
+
+  globalTimers.value = globalTimers.value.map((timer) => {
+    if (!timer.running || timer.done) return timer
+    const remaining =
+      timer.endsAtMs !== null
+        ? Math.max(0, Math.ceil((timer.endsAtMs - now) / 1000))
+        : Math.max(0, timer.remainingSeconds - 1)
+    if (remaining <= 0) {
+      anyFinishedNow = true
+      return { ...timer, remainingSeconds: 0, endsAtMs: null, running: false, done: true }
+    }
+    anyRunning = true
+    return { ...timer, remainingSeconds: remaining }
+  })
+
+  if (anyFinishedNow) {
+    persistTimers()
+    playCompletionChime()
+  }
+  if (!anyRunning && globalTicker !== null && typeof window !== 'undefined') {
+    window.clearInterval(globalTicker)
+    globalTicker = null
+  }
+}
+
+function ensureGlobalTicker() {
+  if (typeof window === 'undefined' || globalTicker !== null) return
+  if (!globalTimers.value.some((t) => t.running && !t.done)) return
+  globalTicker = window.setInterval(tickGlobalTimers, 1000)
+}
+
+if (typeof window !== 'undefined') {
+  ensureGlobalTicker()
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && globalTimers.value.some((t) => t.running)) {
+      tickGlobalTimers()
+    }
+  })
+  window.addEventListener('storage', (event) => {
+    if (event.key !== TIMERS_STORAGE_KEY) return
+    const loaded = loadStoredTimers()
+    globalTimers.value = loaded.list
+    if (loaded.maxId >= nextTimerId) nextTimerId = loaded.maxId + 1
+    if (loaded.list.some((t) => t.running && !t.done)) ensureGlobalTicker()
+  })
+}
+
+export function useCookingTimers() {
+  function uniqueTimerLabel(rawLabel: string): string {
+    const base = rawLabel.trim() || 'Minuteur'
+    const existing = new Set(globalTimers.value.map((t) => t.label))
+    if (!existing.has(base)) return base
+    let suffix = 2
+    while (existing.has(`${base} #${suffix}`)) {
+      suffix += 1
+    }
+    return `${base} #${suffix}`
   }
 
-  function startTimer(label: string, minutes: number) {
-    const cleanLabel = label.trim() || 'Minuteur'
+  function startTimer(label: string, minutes: number, recipeKey: string | null = null) {
+    const cleanLabel = uniqueTimerLabel(label)
     const totalSeconds = Math.max(1, Math.round(minutes * 60))
-    const id = nextId
-    nextId += 1
-    timers.value = [
-      ...timers.value,
+    const id = nextTimerId
+    nextTimerId += 1
+    globalTimers.value = [
+      ...globalTimers.value,
       {
         id,
+        recipeKey,
         label: cleanLabel,
         totalSeconds,
         remainingSeconds: totalSeconds,
+        endsAtMs: Date.now() + totalSeconds * 1000,
         running: true,
         done: false,
       },
     ]
-    ensureTicker()
+    persistTimers()
+    ensureGlobalTicker()
     return id
   }
 
   function togglePause(id: number) {
-    timers.value = timers.value.map((timer) => {
+    const now = Date.now()
+    globalTimers.value = globalTimers.value.map((timer) => {
       if (timer.id !== id || timer.done) return timer
-      return { ...timer, running: !timer.running }
+      if (timer.running) {
+        const remaining =
+          timer.endsAtMs !== null
+            ? Math.max(1, Math.ceil((timer.endsAtMs - now) / 1000))
+            : timer.remainingSeconds
+        return { ...timer, remainingSeconds: remaining, endsAtMs: null, running: false }
+      }
+      return {
+        ...timer,
+        endsAtMs: now + timer.remainingSeconds * 1000,
+        running: true,
+      }
     })
-    if (timers.value.some((t) => t.running)) ensureTicker()
+    persistTimers()
+    if (globalTimers.value.some((t) => t.running)) ensureGlobalTicker()
+    else if (globalTicker !== null && typeof window !== 'undefined') {
+      window.clearInterval(globalTicker)
+      globalTicker = null
+    }
   }
 
   function addMinute(id: number) {
-    timers.value = timers.value.map((timer) => {
+    const now = Date.now()
+    globalTimers.value = globalTimers.value.map((timer) => {
       if (timer.id !== id) return timer
+      const nextRemaining = timer.remainingSeconds + 60
       return {
         ...timer,
         totalSeconds: timer.totalSeconds + 60,
-        remainingSeconds: timer.remainingSeconds + 60,
+        remainingSeconds: nextRemaining,
+        endsAtMs: now + nextRemaining * 1000,
         done: false,
         running: true,
       }
     })
-    ensureTicker()
+    persistTimers()
+    ensureGlobalTicker()
   }
 
   function dismissTimer(id: number) {
-    timers.value = timers.value.filter((timer) => timer.id !== id)
-    if (!timers.value.some((t) => t.running) && ticker !== null) {
-      window.clearInterval(ticker)
-      ticker = null
+    globalTimers.value = globalTimers.value.filter((timer) => timer.id !== id)
+    persistTimers()
+    if (
+      !globalTimers.value.some((t) => t.running) &&
+      globalTicker !== null &&
+      typeof window !== 'undefined'
+    ) {
+      window.clearInterval(globalTicker)
+      globalTicker = null
     }
   }
 
-  onBeforeUnmount(() => {
-    if (ticker !== null) {
-      window.clearInterval(ticker)
-      ticker = null
+  function clearTimersForRecipe(recipeKey: string) {
+    globalTimers.value = globalTimers.value.filter(
+      (timer) => timer.recipeKey !== null && timer.recipeKey !== recipeKey,
+    )
+    persistTimers()
+    if (
+      !globalTimers.value.some((t) => t.running) &&
+      globalTicker !== null &&
+      typeof window !== 'undefined'
+    ) {
+      window.clearInterval(globalTicker)
+      globalTicker = null
     }
-  })
+  }
 
   return {
-    timers: readonly(timers),
+    timers: readonly(globalTimers),
     startTimer,
     togglePause,
     addMinute,
     dismissTimer,
+    clearTimersForRecipe,
   }
 }
