@@ -1,4 +1,6 @@
 <script setup lang="ts">
+defineOptions({ name: 'QuiseraIconButton' })
+
 import Button from './Button.vue'
 
 withDefaults(

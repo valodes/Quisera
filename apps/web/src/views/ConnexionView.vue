@@ -1,22 +1,23 @@
 <script setup lang="ts">
-import { Eye, EyeOff } from '@lucide/vue'
 import { isValidEmail } from '@quisera/shared'
 import { computed, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import Button from '@/components/ui/Button.vue'
-import TextInput from '@/components/ui/TextInput.vue'
 import { authClient, safeReturnTo } from '@/auth/client'
+import AuthLayout from '@/components/auth/AuthLayout.vue'
+import Button from '@/components/ui/Button.vue'
+import PasswordInput from '@/components/ui/PasswordInput.vue'
+import TextInput from '@/components/ui/TextInput.vue'
+import { queryClient, queryKeys } from '@/lib/query'
 
 const route = useRoute()
 const router = useRouter()
 const email = ref('')
 const password = ref('')
-const passwordVisible = ref(false)
 const loading = ref(false)
 const formError = ref('')
 const emailError = ref('')
 const passwordError = ref('')
-const passwordType = computed(() => (passwordVisible.value ? 'text' : 'password'))
+
 const signUpRoute = computed(() =>
   typeof route.query['returnTo'] === 'string'
     ? { name: 'inscription', query: { returnTo: route.query['returnTo'] } }
@@ -44,6 +45,7 @@ async function submit() {
       formError.value = 'Adresse e-mail ou mot de passe incorrect.'
       return
     }
+    queryClient.removeQueries({ queryKey: queryKeys.session })
     await router.replace(safeReturnTo(route.query['returnTo']))
   } catch {
     formError.value = 'Connexion impossible pour le moment. Réessayez.'
@@ -54,75 +56,51 @@ async function submit() {
 </script>
 
 <template>
-  <main class="login-page">
-    <section class="login-brand-panel" aria-label="Quisera">
-      <a class="login-brand" href="/" aria-label="Quisera">
-        <span class="login-brand__mark" aria-hidden="true">Q</span>
-        <span>Quisera</span>
-      </a>
-      <div class="login-brand__message">
-        <p>Organisez vos repas et retrouvez votre espace cuisine.</p>
+  <AuthLayout
+    brand-message="Organisez vos repas et retrouvez votre espace cuisine."
+    title-id="login-title"
+  >
+    <h1 id="login-title">Ravi de vous retrouver.</h1>
+    <p class="login-intro">Connectez-vous pour retrouver votre espace Quisera.</p>
+
+    <form class="login-form" novalidate @submit.prevent="submit">
+      <TextInput
+        v-model="email"
+        label="Adresse e-mail"
+        type="email"
+        autocomplete="username"
+        :error-message="emailError"
+        :disabled="loading"
+      />
+
+      <PasswordInput
+        v-model="password"
+        label="Mot de passe"
+        autocomplete="current-password"
+        :error-message="passwordError"
+        :disabled="loading"
+      />
+
+      <div class="auth-field-action">
+        <RouterLink class="auth-link" :to="{ name: 'forgot-password' }">
+          Mot de passe oublié ?
+        </RouterLink>
       </div>
-    </section>
 
-    <section class="login-form-panel" aria-labelledby="login-title">
-      <div class="login-form-wrap">
-        <h1 id="login-title">Ravi de vous retrouver.</h1>
-        <p class="login-intro">Connectez-vous pour retrouver votre espace Quisera.</p>
+      <p v-if="formError" class="login-error" role="alert">
+        <span aria-hidden="true">!</span>{{ formError }}
+      </p>
 
-        <form class="login-form" novalidate @submit.prevent="submit">
-          <TextInput
-            v-model="email"
-            label="Adresse e-mail"
-            type="email"
-            autocomplete="username"
-            :error-message="emailError"
-            :disabled="loading"
-          />
-          <div class="password-field">
-            <TextInput
-              v-model="password"
-              label="Mot de passe"
-              :type="passwordType"
-              autocomplete="current-password"
-              :error-message="passwordError"
-              :disabled="loading"
-            />
-            <button
-              type="button"
-              class="password-toggle"
-              :aria-label="passwordVisible ? 'Masquer le mot de passe' : 'Afficher le mot de passe'"
-              :aria-pressed="passwordVisible"
-              :disabled="loading"
-              @click="passwordVisible = !passwordVisible"
-            >
-              <EyeOff v-if="passwordVisible" :size="19" aria-hidden="true" />
-              <Eye v-else :size="19" aria-hidden="true" />
-            </button>
-          </div>
+      <Button type="submit" :loading="loading" class="login-submit">
+        {{ loading ? 'Connexion en cours' : 'Se connecter' }}
+      </Button>
+    </form>
 
-          <div class="auth-field-action">
-            <RouterLink class="auth-link" :to="{ name: 'forgot-password' }">
-              Mot de passe oublié ?
-            </RouterLink>
-          </div>
+    <div class="auth-footer">
+      <span>Pas encore de compte ?</span>
+      <RouterLink class="auth-link" :to="signUpRoute">Créer un compte</RouterLink>
+    </div>
 
-          <p v-if="formError" class="login-error" role="alert">
-            <span aria-hidden="true">!</span>{{ formError }}
-          </p>
-
-          <Button type="submit" :loading="loading" class="login-submit">
-            {{ loading ? 'Connexion en cours' : 'Se connecter' }}
-          </Button>
-        </form>
-
-        <div class="auth-footer">
-          <span>Pas encore de compte ?</span>
-          <RouterLink class="auth-link" :to="signUpRoute"> Créer un compte </RouterLink>
-        </div>
-
-        <p class="login-private-note">Espace privé · réservé à votre foyer</p>
-      </div>
-    </section>
-  </main>
+    <p class="login-private-note">Espace privé · réservé à votre foyer</p>
+  </AuthLayout>
 </template>
