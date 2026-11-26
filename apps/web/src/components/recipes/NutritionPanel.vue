@@ -112,7 +112,7 @@ const hasAnyData = computed(
   </section>
 </template>
 
-<style scoped lang="scss">
+<style scoped>
 .nutrition-panel {
   display: grid;
   gap: var(--q-space-3);
@@ -121,21 +121,19 @@ const hasAnyData = computed(
   border-radius: var(--q-radius-card);
   background: var(--q-sage);
   color: var(--q-forest);
-
-  &__head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--q-space-2);
-  }
-
-  &__badges {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--q-space-2);
-  }
+}
+.nutrition-panel__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--q-space-2);
+}
+.nutrition-panel__badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--q-space-2);
 }
 
 .nutrition-pill {
@@ -148,17 +146,15 @@ const hasAnyData = computed(
   font-size: var(--q-type-label);
   font-weight: 800;
   font-variant-numeric: tabular-nums;
-
-  &--servings {
-    border: 1px solid var(--q-forest);
-    background: var(--q-peach);
-    color: var(--q-forest);
-  }
-
-  &--kcal {
-    background: var(--q-forest);
-    color: var(--q-shoot);
-  }
+}
+.nutrition-pill--servings {
+  border: 1px solid var(--q-forest);
+  background: var(--q-peach);
+  color: var(--q-forest);
+}
+.nutrition-pill--kcal {
+  background: var(--q-forest);
+  color: var(--q-shoot);
 }
 
 .nutrition-bar {
@@ -168,22 +164,18 @@ const hasAnyData = computed(
   border: 1px solid var(--q-forest);
   border-radius: var(--q-radius-control);
   background: var(--q-peach);
-
-  &__seg {
-    height: 100%;
-
-    &--protein {
-      background: var(--q-forest);
-    }
-
-    &--carbs {
-      background: var(--q-leaf);
-    }
-
-    &--fat {
-      background: var(--q-coral);
-    }
-  }
+}
+.nutrition-bar__seg {
+  height: 100%;
+}
+.nutrition-bar__seg--protein {
+  background: var(--q-forest);
+}
+.nutrition-bar__seg--carbs {
+  background: var(--q-leaf);
+}
+.nutrition-bar__seg--fat {
+  background: var(--q-coral);
 }
 
 .nutrition-grid {
@@ -200,28 +192,24 @@ const hasAnyData = computed(
   border: 1px solid var(--q-leaf);
   border-radius: var(--q-radius-control);
   background: var(--q-peach);
-
-  dt {
-    font-size: var(--q-type-metadata);
-    font-weight: 700;
-    color: var(--q-leaf);
-  }
-
-  dd {
-    margin: 0;
-    font-family: var(--q-font-display);
-    font-size: var(--q-type-body);
-    font-weight: 800;
-    font-variant-numeric: tabular-nums;
-    color: var(--q-forest);
-  }
-
-  &--protein {
-    border-color: var(--q-forest);
-  }
-
-  &--fat {
-    background: var(--q-peach);
-  }
+}
+.nutrition-cell dt {
+  font-size: var(--q-type-metadata);
+  font-weight: 700;
+  color: var(--q-leaf);
+}
+.nutrition-cell dd {
+  margin: 0;
+  font-family: var(--q-font-display);
+  font-size: var(--q-type-body);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--q-forest);
+}
+.nutrition-cell--protein {
+  border-color: var(--q-forest);
+}
+.nutrition-cell--fat {
+  background: var(--q-peach);
 }
 </style>

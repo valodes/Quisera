@@ -5,6 +5,7 @@ import Button from './Button.vue'
 import IconButton from './IconButton.vue'
 import Surface from './Surface.vue'
 import TextInput from './TextInput.vue'
+import ScoreBadge from './ScoreBadge.vue'
 import RecipeCard from '../recipes/RecipeCard.vue'
 
 describe('Button', () => {
@@ -105,6 +106,23 @@ describe('RecipeCard', () => {
 
     expect(wrapper.get('.q-recipe-card__time-pill').text()).toContain('25 min')
     expect(wrapper.get('.q-recipe-card__kcal').text()).toContain('640 kcal')
-    expect(wrapper.findAll('.score-badge')).toHaveLength(2)
+    const badges = wrapper.findAll('.q-recipe-card__scores .score-badge')
+    expect(badges).toHaveLength(2)
+    expect(badges[1]?.find('svg').exists()).toBe(false)
+  })
+})
+
+describe('ScoreBadge', () => {
+  it('shows the leaf icon in default mode and omits it in compact mode for carbon score', () => {
+    const full = mount(ScoreBadge, {
+      props: { kind: 'eco', grade: 'B' },
+    })
+    const compact = mount(ScoreBadge, {
+      props: { kind: 'eco', grade: 'B', compact: true },
+    })
+
+    expect(full.find('svg').exists()).toBe(true)
+    expect(compact.find('svg').exists()).toBe(false)
+    expect(compact.attributes('aria-label')).toBe('Score carbone B')
   })
 })

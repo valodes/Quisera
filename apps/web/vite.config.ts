@@ -1,10 +1,39 @@
 import tailwindcss from '@tailwindcss/vite'
 import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
+
+function preloadPrimaryFonts(): Plugin {
+  return {
+    name: 'quisera:preload-primary-fonts',
+    transformIndexHtml: {
+      order: 'post',
+      handler(_html, ctx) {
+        if (!ctx.bundle) return []
+        const preloadFiles = Object.keys(ctx.bundle).filter(
+          (fileName) =>
+            fileName.endsWith('.woff2') &&
+            (fileName.includes('manrope-latin-wght-normal') ||
+              fileName.includes('dm-sans-latin-wght-normal')),
+        )
+        return preloadFiles.map((fileName) => ({
+          tag: 'link',
+          attrs: {
+            rel: 'preload',
+            as: 'font',
+            type: 'font/woff2',
+            href: `/${fileName}`,
+            crossorigin: '',
+          },
+          injectTo: 'head',
+        }))
+      },
+    },
+  }
+}
 
 export default defineConfig({
-  plugins: [vue(), tailwindcss()],
+  plugins: [vue(), tailwindcss(), preloadPrimaryFonts()],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
@@ -26,8 +55,13 @@ export default defineConfig({
               priority: 15,
             },
             {
-              name: 'vendor-auth-zod',
-              test: /node_modules[\\/](better-auth|better-call|zod)[\\/]/,
+              name: 'vendor-auth',
+              test: /node_modules[\\/](better-auth|better-call)[\\/]/,
+              priority: 12,
+            },
+            {
+              name: 'vendor-zod',
+              test: /node_modules[\\/]zod[\\/]/,
               priority: 10,
             },
           ],

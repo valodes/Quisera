@@ -40,7 +40,7 @@ const ariaLabel = computed(() =>
     :title="ariaLabel"
   >
     <span class="score-badge__prefix">
-      <Leaf v-if="kind === 'eco'" :size="11" aria-hidden="true" />
+      <Leaf v-if="kind === 'eco' && !compact" :size="11" aria-hidden="true" />
       <span>{{ kind === 'nutri' ? 'NUTRI' : 'CARBONE' }}</span>
     </span>
     <span class="score-badge__scale" aria-hidden="true">
@@ -62,146 +62,127 @@ const ariaLabel = computed(() =>
     :aria-label="ariaLabel"
     :title="ariaLabel"
   >
-    <Leaf v-if="kind === 'eco'" :size="12" aria-hidden="true" />
+    <Leaf v-if="kind === 'eco' && !compact" :size="12" aria-hidden="true" />
     <span>{{ label }} n/d</span>
   </span>
 </template>
 
-<style scoped lang="scss">
-@use 'sass:list';
-
-$score-palettes: (
-  'nutri-a': (
-    #038141,
-    #f7faf7,
-  ),
-  'nutri-b': (
-    #85bb2f,
-    #173d2c,
-  ),
-  'nutri-c': (
-    #fecb02,
-    #173d2c,
-  ),
-  'nutri-d': (
-    #ee8100,
-    #173d2c,
-  ),
-  'nutri-e': (
-    #e63e11,
-    #fff6f2,
-  ),
-  'eco-a': (
-    #1e8f4e,
-    #f7faf7,
-  ),
-  'eco-b': (
-    #2ecc71,
-    #173d2c,
-  ),
-  'eco-c': (
-    #f5c518,
-    #173d2c,
-  ),
-  'eco-d': (
-    #ef7d1a,
-    #173d2c,
-  ),
-  'eco-e': (
-    #e63e11,
-    #fff6f2,
-  ),
-);
-
+<style scoped>
 .score-badge {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
   padding: 2px 5px 2px 6px;
-  border-radius: 5px;
+  border-radius: var(--q-radius-control);
   background: var(--q-sage);
   border: 1px solid var(--q-leaf);
   line-height: 1;
   vertical-align: middle;
-
-  &--unavailable {
-    padding: 0.2rem 0.45rem;
-    font-size: var(--q-type-metadata);
-    font-weight: 600;
-    color: var(--q-leaf);
-    border-color: transparent;
-  }
-
-  &__prefix {
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
-    font-family: var(--q-font-display);
-    font-size: 0.6rem;
-    font-weight: 850;
-    letter-spacing: 0.04em;
-    color: var(--q-forest);
-  }
-
-  &__scale {
-    display: inline-flex;
-    align-items: center;
-    border-radius: 3px;
-    overflow: visible;
-  }
-
-  &__cell {
-    display: inline-grid;
-    place-items: center;
-    width: 14px;
-    height: 16px;
-    font-family: var(--q-font-display);
-    font-size: 0.62rem;
-    font-weight: 800;
-    opacity: 0.55;
-    transition: transform 120ms ease;
-
-    &:first-child {
-      border-radius: 3px 0 0 3px;
-    }
-
-    &:last-child {
-      border-radius: 0 3px 3px 0;
-    }
-
-    &.is-active {
-      position: relative;
-      z-index: 1;
-      width: 19px;
-      height: 20px;
-      margin-block: -2px;
-      border-radius: 4px;
-      font-size: 0.75rem;
-      font-weight: 900;
-      opacity: 1;
-      box-shadow: 0 0 0 1.5px var(--q-peach);
-    }
-
-    @each $grade, $colors in $score-palettes {
-      &--#{$grade} {
-        background: list.nth($colors, 1);
-        color: list.nth($colors, 2);
-      }
-    }
-  }
-
-  &--compact {
-    .score-badge__cell {
-      width: 12px;
-      height: 15px;
-      font-size: 0.58rem;
-
-      &.is-active {
-        width: 17px;
-        height: 19px;
-        font-size: 0.72rem;
-      }
-    }
-  }
+}
+.score-badge--unavailable {
+  padding: 0.2rem 0.45rem;
+  font-size: var(--q-type-metadata);
+  font-weight: 600;
+  color: var(--q-leaf);
+  border-color: transparent;
+}
+.score-badge__prefix {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-family: var(--q-font-display);
+  font-size: 0.6rem;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  color: var(--q-forest);
+}
+.score-badge__scale {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--q-radius-control);
+  overflow: visible;
+}
+.score-badge__cell {
+  display: inline-grid;
+  place-items: center;
+  width: 14px;
+  height: 16px;
+  font-family: var(--q-font-display);
+  font-size: 0.62rem;
+  font-weight: 800;
+  opacity: 0.55;
+  transition: transform 120ms ease;
+}
+.score-badge__cell:first-child {
+  border-radius: var(--q-radius-control) 0 0 var(--q-radius-control);
+}
+.score-badge__cell:last-child {
+  border-radius: 0 var(--q-radius-control) var(--q-radius-control) 0;
+}
+.score-badge__cell.is-active {
+  position: relative;
+  z-index: 1;
+  width: 19px;
+  height: 20px;
+  margin-block: -2px;
+  border-radius: var(--q-radius-control);
+  font-size: 0.75rem;
+  font-weight: 900;
+  opacity: 1;
+  box-shadow: 0 0 0 1.5px var(--q-peach);
+}
+.score-badge__cell--nutri-a {
+  background: #038141;
+  color: #f7faf7;
+}
+.score-badge__cell--nutri-b {
+  background: #85bb2f;
+  color: #173d2c;
+}
+.score-badge__cell--nutri-c {
+  background: #fecb02;
+  color: #173d2c;
+}
+.score-badge__cell--nutri-d {
+  background: #ee8100;
+  color: #173d2c;
+}
+.score-badge__cell--nutri-e {
+  background: #e63e11;
+  color: #fff6f2;
+}
+.score-badge__cell--eco-a {
+  background: #1e8f4e;
+  color: #f7faf7;
+}
+.score-badge__cell--eco-b {
+  background: #2ecc71;
+  color: #173d2c;
+}
+.score-badge__cell--eco-c {
+  background: #f5c518;
+  color: #173d2c;
+}
+.score-badge__cell--eco-d {
+  background: #ef7d1a;
+  color: #173d2c;
+}
+.score-badge__cell--eco-e {
+  background: #e63e11;
+  color: #fff6f2;
+}
+.score-badge--compact {
+  gap: 0.25rem;
+  padding: 2px 4px 2px 5px;
+}
+.score-badge--compact .score-badge__cell {
+  width: 11px;
+  height: 15px;
+  font-size: 0.58rem;
+}
+.score-badge--compact .score-badge__cell.is-active {
+  width: 16px;
+  height: 19px;
+  font-size: 0.72rem;
 }
 </style>

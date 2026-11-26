@@ -4,10 +4,11 @@ import AppShell from '@/app/layouts/AppShell.vue'
 import { queryClient } from '@/lib/query'
 import router from '@/router'
 import { initTheme } from '@/styles/themes'
-import '@fontsource-variable/manrope'
-import '@fontsource-variable/dm-sans'
+import './styles/fonts.css'
+import './styles/tokens.css'
 import './styles/tailwind.css'
-import './style.scss'
+import './styles/layout.css'
+import './style.css'
 
 initTheme()
 const app = createApp(AppShell)

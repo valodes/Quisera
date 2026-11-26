@@ -55,7 +55,7 @@ const open = defineModel<boolean>('open', { default: false })
   </DialogRoot>
 </template>
 
-<style lang="scss">
+<style>
 .q-modal-overlay {
   position: fixed;
   inset: 0;
@@ -70,7 +70,7 @@ const open = defineModel<boolean>('open', { default: false })
   z-index: calc(var(--q-z-toast) + 10);
   display: grid;
   grid-template-rows: auto 1fr auto;
-  width: min(54rem, calc(100vw - 2rem));
+  width: min(54rem, 100vw - 2rem);
   max-height: calc(100vh - 3rem);
   max-height: calc(100dvh - 3rem);
   transform: translate(-50%, -50%);
@@ -79,86 +79,76 @@ const open = defineModel<boolean>('open', { default: false })
   border-radius: var(--q-radius-card);
   background: var(--q-peach);
   color: var(--q-forest);
-
-  &--md {
-    width: min(44rem, calc(100vw - 2rem));
-  }
-
-  &__head {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: var(--q-space-4);
-    padding: var(--q-space-4) var(--q-space-6);
-    border-bottom: 1px solid var(--q-leaf);
-    background: var(--q-sage);
-  }
-
-  &__head-text {
-    min-width: 0;
-  }
-
-  &__badge {
-    display: inline-block;
-    margin-bottom: var(--q-space-1);
-    padding: 0.15rem 0.5rem;
-    border-radius: var(--q-radius-control);
-    background: var(--q-forest);
-    color: var(--q-peach);
-    font-family: var(--q-font-display);
-    font-size: var(--q-type-metadata);
-    font-weight: 800;
-  }
-
-  &__title {
-    margin: 0;
-    font-family: var(--q-font-display);
-    font-size: var(--q-type-h3);
-    font-weight: 800;
-    line-height: var(--q-line-heading);
-    text-wrap: balance;
-  }
-
-  &__close {
-    display: grid;
-    place-items: center;
-    flex: none;
-    width: var(--q-touch-target);
-    height: var(--q-touch-target);
-    border: 0;
-    border-radius: var(--q-radius-control);
-    background: transparent;
-    color: var(--q-forest);
-
-    &:hover {
-      background: var(--q-shoot);
-    }
-
-    &:focus-visible {
-      outline: 3px solid var(--q-focus);
-      outline-offset: 2px;
-    }
-  }
-
-  &__body {
-    display: flex;
-    flex-direction: column;
-    gap: var(--q-space-4);
-    min-height: 0;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    padding: var(--q-space-6);
-  }
-
-  &__foot {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--q-space-3);
-    padding: var(--q-space-4) var(--q-space-6);
-    border-top: 1px solid var(--q-leaf);
-    background: var(--q-sage);
-  }
+}
+.q-modal--md {
+  width: min(44rem, 100vw - 2rem);
+}
+.q-modal__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--q-space-4);
+  padding: var(--q-space-4) var(--q-space-6);
+  border-bottom: 1px solid var(--q-leaf);
+  background: var(--q-sage);
+}
+.q-modal__head-text {
+  min-width: 0;
+}
+.q-modal__badge {
+  display: inline-block;
+  margin-bottom: var(--q-space-1);
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--q-radius-control);
+  background: var(--q-forest);
+  color: var(--q-peach);
+  font-family: var(--q-font-display);
+  font-size: var(--q-type-metadata);
+  font-weight: 800;
+}
+.q-modal__title {
+  margin: 0;
+  font-family: var(--q-font-display);
+  font-size: var(--q-type-h3);
+  font-weight: 800;
+  line-height: var(--q-line-heading);
+  text-wrap: balance;
+}
+.q-modal__close {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: var(--q-touch-target);
+  height: var(--q-touch-target);
+  border: 0;
+  border-radius: var(--q-radius-control);
+  background: transparent;
+  color: var(--q-forest);
+}
+.q-modal__close:hover {
+  background: var(--q-shoot);
+}
+.q-modal__close:focus-visible {
+  outline: 3px solid var(--q-focus);
+  outline-offset: 2px;
+}
+.q-modal__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--q-space-4);
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--q-space-6);
+}
+.q-modal__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--q-space-3);
+  padding: var(--q-space-4) var(--q-space-6);
+  border-top: 1px solid var(--q-leaf);
+  background: var(--q-sage);
 }
 </style>

@@ -1,3 +1,6 @@
+import { useStorage } from '@vueuse/core'
+import { watch } from 'vue'
+
 export type ThemeId = 'jardin' | 'catppuccin' | 'moccachino' | 'sakura' | 'nocturne' | 'foret-nuit'
 
 export type ThemeOption = {
@@ -97,25 +100,33 @@ export function isThemeId(value: unknown): value is ThemeId {
   return typeof value === 'string' && validThemeIds.has(value)
 }
 
+const storedTheme = useStorage<ThemeId>(THEME_STORAGE_KEY, 'jardin', undefined, {
+  serializer: {
+    read: (raw) => (isThemeId(raw) ? raw : 'jardin'),
+    write: (value) => value,
+  },
+})
+
+function syncDocumentTheme(id: ThemeId) {
+  if (typeof document === 'undefined') return
+  if (id === 'jardin') {
+    document.documentElement.removeAttribute('data-theme')
+  } else {
+    document.documentElement.setAttribute('data-theme', id)
+  }
+}
+
+watch(storedTheme, syncDocumentTheme, { immediate: true })
+
 export function getStoredTheme(): ThemeId {
-  if (typeof window === 'undefined') return 'jardin'
-  const stored = window.localStorage.getItem(THEME_STORAGE_KEY)
-  return isThemeId(stored) ? stored : 'jardin'
+  return storedTheme.value
 }
 
 export function applyTheme(id: ThemeId) {
-  if (typeof document !== 'undefined') {
-    if (id === 'jardin') {
-      document.documentElement.removeAttribute('data-theme')
-    } else {
-      document.documentElement.setAttribute('data-theme', id)
-    }
-  }
-  if (typeof window !== 'undefined') {
-    window.localStorage.setItem(THEME_STORAGE_KEY, id)
-  }
+  storedTheme.value = id
+  syncDocumentTheme(id)
 }
 
 export function initTheme() {
-  applyTheme(getStoredTheme())
+  syncDocumentTheme(storedTheme.value)
 }

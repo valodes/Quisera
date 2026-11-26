@@ -1,80 +1,5 @@
-// Quisera's palette is the single source of truth for all visual colors.
-$themes: (
-  'catppuccin': (
-    'scheme': light,
-    'forest': #2f3246,
-    'terracotta': #c4364e,
-    'leaf': #555873,
-    'sage': #e6e9ef,
-    'peach': #eff1f5,
-    'shoot': #d9d2f8,
-    'coral': #f5c2b4,
-    'tomato': #d20f39,
-    'sidebar-bg': #2f3246,
-    'sidebar-text': #eff1f5,
-    'board-bg': #555873,
-  ),
-  'moccachino': (
-    'scheme': light,
-    'forest': #3b2314,
-    'terracotta': #a64b2a,
-    'leaf': #6e4730,
-    'sage': #e8ddd1,
-    'peach': #f7f1e9,
-    'shoot': #e8c9a1,
-    'coral': #dfa684,
-    'tomato': #c8432b,
-    'sidebar-bg': #3b2314,
-    'sidebar-text': #f7f1e9,
-    'board-bg': #6e4730,
-  ),
-  'sakura': (
-    'scheme': light,
-    'forest': #3d1a2b,
-    'terracotta': #b83b5e,
-    'leaf': #7d3b59,
-    'sage': #f5dce4,
-    'peach': #fdf2f6,
-    'shoot': #e6e8b8,
-    'coral': #f4a7be,
-    'tomato': #c93356,
-    'sidebar-bg': #3d1a2b,
-    'sidebar-text': #fdf2f6,
-    'board-bg': #7d3b59,
-  ),
-  'nocturne': (
-    'scheme': dark,
-    'forest': #e6ecff,
-    'terracotta': #f38ba8,
-    'leaf': #9aa8d6,
-    'sage': #181825,
-    'peach': #242538,
-    'shoot': #2f4538,
-    'coral': #5a3348,
-    'tomato': #f38ba8,
-    'sidebar-bg': #11111b,
-    'sidebar-text': #e6ecff,
-    'board-bg': #11111b,
-  ),
-  'foret-nuit': (
-    'scheme': dark,
-    'forest': #e8f3e6,
-    'terracotta': #f08262,
-    'leaf': #8cc4a3,
-    'sage': #101e18,
-    'peach': #192d24,
-    'shoot': #2d4a2b,
-    'coral': #633526,
-    'tomato': #f57b6e,
-    'sidebar-bg': #0a1410,
-    'sidebar-text': #e8f3e6,
-    'board-bg': #0a1410,
-  ),
-);
-
 :root {
   color-scheme: light;
-
   --q-forest: #173d2c;
   --q-terracotta: #c74832;
   --q-leaf: #2f744e;
@@ -86,7 +11,6 @@ $themes: (
   --q-sidebar-bg: var(--q-forest);
   --q-sidebar-text: var(--q-peach);
   --q-board-bg: var(--q-leaf);
-
   --q-canvas: var(--q-sage);
   --q-surface: var(--q-peach);
   --q-surface-secondary: var(--q-shoot);
@@ -104,10 +28,8 @@ $themes: (
   --q-warning: var(--q-shoot);
   --q-error: var(--q-peach);
   --q-error-border: var(--q-tomato);
-
   --q-font-display: 'Manrope Variable', 'Manrope', sans-serif;
   --q-font-body: 'DM Sans Variable', 'DM Sans', sans-serif;
-
   --q-type-display: clamp(3rem, 7vw, 5.5rem);
   --q-type-h1: clamp(2.5rem, 5vw, 4rem);
   --q-type-h2: clamp(2rem, 4vw, 3rem);
@@ -125,7 +47,6 @@ $themes: (
   --q-line-heading: 1.12;
   --q-line-body: 1.5;
   --q-line-compact: 1.25;
-
   --q-space-1: 0.25rem;
   --q-space-2: 0.5rem;
   --q-space-3: 0.75rem;
@@ -143,7 +64,6 @@ $themes: (
   --q-ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
   --q-z-popover: 20;
   --q-z-toast: 50;
-
   --background: var(--q-canvas);
   --foreground: var(--q-text);
   --card: var(--q-surface);
@@ -166,14 +86,77 @@ $themes: (
   --radius: var(--q-radius-control);
 }
 
-@each $name, $palette in $themes {
-  :root[data-theme='#{$name}'] {
-    @each $key, $value in $palette {
-      @if $key == 'scheme' {
-        color-scheme: $value;
-      } @else {
-        --q-#{$key}: #{$value};
-      }
-    }
-  }
+:root[data-theme='catppuccin'] {
+  color-scheme: light;
+  --q-forest: #2f3246;
+  --q-terracotta: #c4364e;
+  --q-leaf: #555873;
+  --q-sage: #e6e9ef;
+  --q-peach: #eff1f5;
+  --q-shoot: #d9d2f8;
+  --q-coral: #f5c2b4;
+  --q-tomato: #d20f39;
+  --q-sidebar-bg: #2f3246;
+  --q-sidebar-text: #eff1f5;
+  --q-board-bg: #555873;
+}
+
+:root[data-theme='moccachino'] {
+  color-scheme: light;
+  --q-forest: #3b2314;
+  --q-terracotta: #a64b2a;
+  --q-leaf: #6e4730;
+  --q-sage: #e8ddd1;
+  --q-peach: #f7f1e9;
+  --q-shoot: #e8c9a1;
+  --q-coral: #dfa684;
+  --q-tomato: #c8432b;
+  --q-sidebar-bg: #3b2314;
+  --q-sidebar-text: #f7f1e9;
+  --q-board-bg: #6e4730;
+}
+
+:root[data-theme='sakura'] {
+  color-scheme: light;
+  --q-forest: #3d1a2b;
+  --q-terracotta: #b83b5e;
+  --q-leaf: #7d3b59;
+  --q-sage: #f5dce4;
+  --q-peach: #fdf2f6;
+  --q-shoot: #e6e8b8;
+  --q-coral: #f4a7be;
+  --q-tomato: #c93356;
+  --q-sidebar-bg: #3d1a2b;
+  --q-sidebar-text: #fdf2f6;
+  --q-board-bg: #7d3b59;
+}
+
+:root[data-theme='nocturne'] {
+  color-scheme: dark;
+  --q-forest: #e6ecff;
+  --q-terracotta: #f38ba8;
+  --q-leaf: #9aa8d6;
+  --q-sage: #181825;
+  --q-peach: #242538;
+  --q-shoot: #2f4538;
+  --q-coral: #5a3348;
+  --q-tomato: #f38ba8;
+  --q-sidebar-bg: #11111b;
+  --q-sidebar-text: #e6ecff;
+  --q-board-bg: #11111b;
+}
+
+:root[data-theme='foret-nuit'] {
+  color-scheme: dark;
+  --q-forest: #e8f3e6;
+  --q-terracotta: #f08262;
+  --q-leaf: #8cc4a3;
+  --q-sage: #101e18;
+  --q-peach: #192d24;
+  --q-shoot: #2d4a2b;
+  --q-coral: #633526;
+  --q-tomato: #f57b6e;
+  --q-sidebar-bg: #0a1410;
+  --q-sidebar-text: #e8f3e6;
+  --q-board-bg: #0a1410;
 }

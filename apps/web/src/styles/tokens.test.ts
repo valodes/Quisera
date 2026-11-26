@@ -1,9 +1,9 @@
+import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import * as sass from 'sass-embedded'
 import { describe, expect, it } from 'vitest'
 
-const tokens = sass.compile(resolve(dirname(fileURLToPath(import.meta.url)), 'tokens.scss')).css
+const tokens = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), 'tokens.css'), 'utf8')
 
 function extractBlock(selector: string): string {
   const escaped = selector
