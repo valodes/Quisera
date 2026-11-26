@@ -132,7 +132,16 @@ describe('private recipe library', () => {
   it('creates and reads a normalized house recipe with unavailable metrics', async () => {
     const owner = await createUser('recipe-owner@quisera.invalid', 'Owner')
     const cookie = await signIn(owner.user.email)
-    const created = await createHouseRecipe(cookie)
+    const created = await createHouseRecipe(cookie, 'Bœuf mijoté aux épices douces')
+
+    // Accent- and ligature-insensitive SQLite search via fold_fr
+    const searchFolded = await app.request('/api/recipes?q=boeuf%20mijote%20aux%20epices', {
+      headers: { cookie },
+    })
+    expect(searchFolded.status).toBe(200)
+    expect(((await searchFolded.json()) as { items: Array<{ id: string }> }).items).toMatchObject([
+      { id: created.id },
+    ])
 
     const response = await app.request(`/api/recipes/${created.id}`, {
       headers: { cookie },
@@ -141,7 +150,7 @@ describe('private recipe library', () => {
     expect(await response.json()).toMatchObject({
       id: created.id,
       source: 'house',
-      title: 'Soupe de test',
+      title: 'Bœuf mijoté aux épices douces',
       totalMinutes: 35,
       difficulty: 'easy',
       category: 'Soupes',
@@ -298,9 +307,10 @@ describe('private recipe library', () => {
     const owner = await createUser('recipe-photo@quisera.invalid', 'Photo')
     const cookie = await signIn(owner.user.email)
     const png = [
-      137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0,
-      0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 8, 215, 99, 248, 207, 192, 0, 0, 3, 1, 1,
-      0, 201, 254, 146, 239, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+      137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 2, 0, 0, 0, 2, 8, 6, 0,
+      0, 0, 114, 182, 13, 36, 0, 0, 0, 9, 112, 72, 89, 115, 0, 0, 3, 232, 0, 0, 3, 232, 1, 181, 123,
+      82, 107, 0, 0, 0, 17, 73, 68, 65, 84, 8, 153, 99, 16, 183, 213, 249, 15, 194, 12, 48, 6, 0,
+      48, 160, 5, 253, 240, 130, 118, 28, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
     ]
     const createdResponse = await app.request('/api/recipes', {
       method: 'POST',
@@ -327,6 +337,9 @@ describe('private recipe library', () => {
     expect(Buffer.from(await photo.arrayBuffer())).toEqual(
       Buffer.from(readFileSync(join(directory, photoKey!))),
     )
+    const thumb = await app.request(`${created.imageUrl}?variant=thumb`, { headers: { cookie } })
+    expect(thumb.status).toBe(200)
+    expect(thumb.headers.get('content-type')).toBe('image/webp')
 
     const mismatched = await app.request('/api/recipes', {
       method: 'POST',

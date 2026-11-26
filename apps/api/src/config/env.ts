@@ -1,8 +1,11 @@
-import { config as loadDotEnv } from 'dotenv'
+import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { z } from 'zod'
 
-loadDotEnv({ path: resolve(process.cwd(), '../../.env') })
+const envFilePath = resolve(process.cwd(), '../../.env')
+if (existsSync(envFilePath)) {
+  process.loadEnvFile(envFilePath)
+}
 
 const originSchema = z
   .string()

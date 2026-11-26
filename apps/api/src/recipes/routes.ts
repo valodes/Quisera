@@ -12,10 +12,12 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { Hono } from 'hono'
+import { LRUCache } from 'lru-cache'
+import sharp from 'sharp'
 import { z } from 'zod'
 import type { ApiHonoEnvironment } from '../app.js'
 import { requireSession } from '../app.js'
-import type { DatabaseClient } from '../db/connection.js'
+import { foldFrenchSearchText, type DatabaseClient } from '../db/connection.js'
 import {
   recipe,
   recipeFavorite,
@@ -40,21 +42,47 @@ const querySchema = z.object({
 
 const photoContentTypes = {
   'image/jpeg': {
+    expectedFormats: ['jpeg'],
+    outputFormat: 'jpeg',
+    mimeType: 'image/jpeg',
     extension: 'jpg',
-    matches: (data: Uint8Array) => data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff,
   },
   'image/png': {
+    expectedFormats: ['png'],
+    outputFormat: 'png',
+    mimeType: 'image/png',
     extension: 'png',
-    matches: (data: Uint8Array) =>
-      [137, 80, 78, 71, 13, 10, 26, 10].every((byte, index) => data[index] === byte),
   },
   'image/webp': {
+    expectedFormats: ['webp'],
+    outputFormat: 'webp',
+    mimeType: 'image/webp',
     extension: 'webp',
-    matches: (data: Uint8Array) =>
-      [82, 73, 70, 70].every((byte, index) => data[index] === byte) &&
-      [87, 69, 66, 80].every((byte, index) => data[index + 8] === byte),
+  },
+  'image/avif': {
+    expectedFormats: ['avif', 'heif'],
+    outputFormat: 'avif',
+    mimeType: 'image/avif',
+    extension: 'avif',
+  },
+  'image/heic': {
+    expectedFormats: ['heif'],
+    outputFormat: 'webp',
+    mimeType: 'image/webp',
+    extension: 'webp',
+  },
+  'image/heif': {
+    expectedFormats: ['heif'],
+    outputFormat: 'webp',
+    mimeType: 'image/webp',
+    extension: 'webp',
   },
 } as const
+
+const thumbnailCache = new LRUCache<string, Uint8Array>({
+  max: 200,
+  ttl: 60 * 60 * 1000,
+})
 
 const maximumPhotoBytes = 8 * 1024 * 1024
 
@@ -127,17 +155,45 @@ async function parseRecipeBody(request: Request): Promise<ParsedRecipeBody> {
       }
     }
     const rule = photoContentTypes[file.type as keyof typeof photoContentTypes]
-    if (!rule) return { error: 'Format photo accepté : JPEG, PNG ou WebP.' as const }
-    const bytes = new Uint8Array(await file.arrayBuffer())
-    if (!rule.matches(bytes)) {
+    if (!rule) {
+      return { error: 'Format photo accepté : JPEG, PNG, WebP, AVIF ou HEIC.' as const }
+    }
+    const rawBytes = new Uint8Array(await file.arrayBuffer())
+    try {
+      const processor = sharp(rawBytes, { limitInputPixels: 40_000_000 })
+      const metadata = await processor.metadata()
+      if (
+        !metadata.format ||
+        !(rule.expectedFormats as readonly string[]).includes(metadata.format)
+      ) {
+        return {
+          error: 'Le contenu du fichier ne correspond pas à son format.' as const,
+        }
+      }
+      const pipeline = processor
+        .rotate()
+        .resize({ width: 2048, height: 2048, fit: 'inside', withoutEnlargement: true })
+      const encoded =
+        rule.outputFormat === 'jpeg'
+          ? await pipeline.jpeg({ quality: 86, mozjpeg: true }).toBuffer()
+          : rule.outputFormat === 'png'
+            ? await pipeline.png({ compressionLevel: 9 }).toBuffer()
+            : rule.outputFormat === 'avif'
+              ? await pipeline.avif({ quality: 72 }).toBuffer()
+              : await pipeline.webp({ quality: 84 }).toBuffer()
+
+      return {
+        data: result.data,
+        photo: {
+          key: `${randomUUID()}.${rule.extension}`,
+          mimeType: rule.mimeType,
+          bytes: new Uint8Array(encoded),
+        },
+      }
+    } catch {
       return {
         error: 'Le contenu du fichier ne correspond pas à son format.' as const,
       }
-    }
-    const mimeType = file.type
-    return {
-      data: result.data,
-      photo: { key: `${randomUUID()}.${rule.extension}`, mimeType, bytes },
     }
   }
 
@@ -194,11 +250,11 @@ function withRecipeFilters(
     )
   }
   if (filters.q) {
-    const pattern = escapeLike(filters.q)
+    const pattern = escapeLike(foldFrenchSearchText(filters.q))
     conditions.push(
       or(
-        sql`lower(${recipe.title}) LIKE lower(${pattern}) ESCAPE ${'\\'}`,
-        sql`lower(coalesce(${recipe.description}, '')) LIKE lower(${pattern}) ESCAPE ${'\\'}`,
+        sql`fold_fr(${recipe.title}) LIKE ${pattern} ESCAPE ${'\\'}`,
+        sql`fold_fr(coalesce(${recipe.description}, '')) LIKE ${pattern} ESCAPE ${'\\'}`,
       ),
     )
   }
@@ -311,7 +367,8 @@ function toSummary(row: typeof recipe.$inferSelect, decorations: Decorations): R
     description: row.description,
     imageUrl: row.photoKey ? `/api/recipes/${row.id}/photo` : row.photoUrl,
     thumbnailUrl:
-      row.photoThumbnailUrl ?? (row.photoKey ? `/api/recipes/${row.id}/photo` : row.photoUrl),
+      row.photoThumbnailUrl ??
+      (row.photoKey ? `/api/recipes/${row.id}/photo?variant=thumb` : row.photoUrl),
     totalMinutes: row.totalMinutes,
     servings: row.servings,
     difficulty: row.difficulty,
@@ -481,12 +538,36 @@ export function createRecipeRoutes(
       .where(eq(recipe.id, context.req.param('recipeId')))
       .get()
     if (!row?.key || !row.mimeType) return context.notFound()
+    const isThumb = context.req.query('variant') === 'thumb'
+    const etag = `"${row.key}${isThumb ? ':thumb' : ''}"`
+    if (context.req.header('if-none-match') === etag) {
+      context.header('ETag', etag)
+      context.header('Cache-Control', 'private, max-age=86400')
+      return context.body(null, 304)
+    }
     try {
-      const bytes = await readFile(join(photoDirectory, row.key))
+      const sourceBytes = await readFile(join(photoDirectory, row.key))
+      if (isThumb) {
+        let thumb = thumbnailCache.get(row.key)
+        if (!thumb) {
+          const buf = await sharp(sourceBytes)
+            .resize({ width: 640, height: 640, fit: 'inside', withoutEnlargement: true })
+            .webp({ quality: 80 })
+            .toBuffer()
+          thumb = new Uint8Array(buf)
+          thumbnailCache.set(row.key, thumb)
+        }
+        context.header('Content-Type', 'image/webp')
+        context.header('ETag', etag)
+        context.header('Cache-Control', 'private, max-age=86400')
+        context.header('X-Content-Type-Options', 'nosniff')
+        return context.body(thumb as Uint8Array<ArrayBuffer>)
+      }
       context.header('Content-Type', row.mimeType)
-      context.header('Cache-Control', 'private, no-store')
+      context.header('ETag', etag)
+      context.header('Cache-Control', 'private, max-age=86400')
       context.header('X-Content-Type-Options', 'nosniff')
-      return context.body(bytes)
+      return context.body(sourceBytes)
     } catch {
       return context.notFound()
     }
@@ -611,6 +692,20 @@ export function createRecipeRoutes(
           })
           .run()
         addRecipeContent(transaction, id, writeData)
+        transaction
+          .insert(recipeMetric)
+          .values({
+            id: randomUUID(),
+            recipeId: id,
+            key: 'sourceHost',
+            value: draft.sourceHost,
+            unit: null,
+            provenance: draft.sourceHost,
+            method: draft.strategy,
+            recordedAt: now,
+          })
+          .onConflictDoNothing()
+          .run()
         if (draft.nutrition) {
           const metricEntries: ReadonlyArray<[string, number | null, string]> = [
             ['calories', draft.nutrition.caloriesKcal, 'kcal'],

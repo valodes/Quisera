@@ -51,6 +51,18 @@ describe('recipe importer', () => {
       unit: 'c. à s.',
       notes: null,
     })
+    expect(parseFrenchIngredient('1 1/2 c. à soupe de miel &rsquo;bio&rsquo;')).toEqual({
+      name: 'miel ’bio’',
+      quantity: '1.5',
+      unit: 'c. à soupe',
+      notes: null,
+    })
+    expect(parseFrenchIngredient('2 à 3 tomates')).toEqual({
+      name: 'tomates',
+      quantity: '2-3',
+      unit: null,
+      notes: null,
+    })
   })
 
   it('extracts schema.org/Recipe from @graph JSON-LD with HowToSection and calories', () => {
@@ -121,6 +133,8 @@ describe('recipe importer', () => {
   it('blocks private/local URLs and non-HTTP schemes', () => {
     expect(() => validateExternalRecipeUrl('http://localhost:3000/api')).toThrow()
     expect(() => validateExternalRecipeUrl('http://127.0.0.1/secret')).toThrow()
+    expect(() => validateExternalRecipeUrl('http://[::ffff:127.0.0.1]/secret')).toThrow()
+    expect(() => validateExternalRecipeUrl('http://[fe80::1]/secret')).toThrow()
     expect(() => validateExternalRecipeUrl('http://192.168.1.10/admin')).toThrow()
     expect(() => validateExternalRecipeUrl('file:///etc/passwd')).toThrow()
     expect(validateExternalRecipeUrl('https://www.marmiton.org/recettes/x.aspx').hostname).toBe(

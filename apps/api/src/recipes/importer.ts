@@ -1,4 +1,10 @@
 import type { RecipeNutrition } from '@quisera/shared'
+import * as cheerio from 'cheerio'
+import { decodeHTML } from 'entities'
+import ipaddr from 'ipaddr.js'
+import { lookup } from 'node:dns/promises'
+import { parseIngredient, type ParseIngredientOptions } from 'parse-ingredient'
+import { parse as parseIsoDuration } from 'tinyduration'
 import { z } from 'zod'
 
 export type ImportedIngredient = {
@@ -43,22 +49,15 @@ const DEFAULT_HEADERS = {
 }
 
 const MAX_HTML_BYTES = 2 * 1024 * 1024
+const MAX_REDIRECT_HOPS = 5
 
-const PRIVATE_HOST_PATTERNS = [
-  /^localhost$/i,
-  /^127\./,
-  /^10\./,
-  /^192\.168\./,
-  /^169\.254\./,
-  /^172\.(1[6-9]|2\d|3[01])\./,
-  /^0\./,
-  /^\[?::1\]?$/,
-  /^\[?fe80:/i,
-  /^\[?fc00:/i,
-  /^\[?fd/i,
-  /\.local$/i,
-  /\.internal$/i,
-]
+const BLOCKED_HOSTNAME_SUFFIXES = [/^localhost$/i, /\.localhost$/i, /\.local$/i, /\.internal$/i]
+
+function isPublicIpAddress(rawIp: string): boolean {
+  const normalized = rawIp.replace(/^\[|\]$/g, '').split('%')[0] ?? ''
+  if (!ipaddr.isValid(normalized)) return false
+  return ipaddr.process(normalized).range() === 'unicast'
+}
 
 export function validateExternalRecipeUrl(rawUrl: string): URL {
   let parsed: URL
@@ -70,25 +69,45 @@ export function validateExternalRecipeUrl(rawUrl: string): URL {
   if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
     throw new RecipeImportError('Seules les adresses HTTP et HTTPS sont autorisées.', 400)
   }
-  if (PRIVATE_HOST_PATTERNS.some((pattern) => pattern.test(parsed.hostname))) {
+  const bareHost = parsed.hostname.replace(/^\[|\]$/g, '')
+  if (BLOCKED_HOSTNAME_SUFFIXES.some((pattern) => pattern.test(bareHost))) {
+    throw new RecipeImportError('Cette adresse réseau locale n’est pas autorisée.', 400)
+  }
+  if (ipaddr.isValid(bareHost) && !isPublicIpAddress(bareHost)) {
     throw new RecipeImportError('Cette adresse réseau locale n’est pas autorisée.', 400)
   }
   return parsed
 }
 
+async function assertPublicDnsResolution(hostname: string): Promise<void> {
+  const bareHost = hostname.replace(/^\[|\]$/g, '')
+  if (ipaddr.isValid(bareHost)) {
+    if (!isPublicIpAddress(bareHost)) {
+      throw new RecipeImportError('Cette adresse réseau locale n’est pas autorisée.', 400)
+    }
+    return
+  }
+  const records = await lookup(bareHost, { all: true })
+  if (records.length === 0 || records.some((record) => !isPublicIpAddress(record.address))) {
+    throw new RecipeImportError('Cette adresse réseau locale n’est pas autorisée.', 400)
+  }
+}
+
 export function decodeHtmlEntities(value: string): string {
-  return value
-    .replaceAll('&nbsp;', ' ')
-    .replaceAll('&amp;', '&')
-    .replaceAll('&quot;', '"')
-    .replaceAll('&#39;', "'")
-    .replaceAll('&apos;', "'")
-    .replaceAll('&lt;', '<')
-    .replaceAll('&gt;', '>')
-    .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+  return decodeHTML(value)
+    .replace(/\u00a0/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+export function stripHtmlToText(value: string): string {
+  if (!value.includes('<') && !value.includes('&')) {
+    return value.replace(/\s+/g, ' ').trim()
+  }
+  const $ = cheerio.load(`<div>${value}</div>`, null, false)
+  $('script, style, svg, iframe, object').remove()
+  $('br').replaceWith(' ')
+  return decodeHtmlEntities($.text())
 }
 
 export function parseIsoDurationMinutes(value: unknown): number | null {
@@ -97,72 +116,139 @@ export function parseIsoDurationMinutes(value: unknown): number | null {
   }
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
-  const iso = /^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/i.exec(trimmed)
-  if (iso) {
-    const days = Number(iso[1] ?? 0)
-    const hours = Number(iso[2] ?? 0)
-    const minutes = Number(iso[3] ?? 0)
-    const seconds = Number(iso[4] ?? 0)
-    const total = days * 1440 + hours * 60 + minutes + (seconds >= 30 ? 1 : 0)
+  if (!trimmed) return null
+
+  if (/^P/i.test(trimmed)) {
+    try {
+      const d = parseIsoDuration(trimmed.toUpperCase())
+      const totalMinutes =
+        (d.years ?? 0) * 525_600 +
+        (d.months ?? 0) * 43_200 +
+        (d.weeks ?? 0) * 10_080 +
+        (d.days ?? 0) * 1_440 +
+        (d.hours ?? 0) * 60 +
+        (d.minutes ?? 0) +
+        ((d.seconds ?? 0) >= 30 ? 1 : (d.seconds ?? 0) > 0 ? Math.round((d.seconds ?? 0) / 60) : 0)
+      const rounded = Math.round(totalMinutes)
+      return rounded > 0 ? rounded : null
+    } catch {
+      return null
+    }
+  }
+
+  const hourMin = /^(\d{1,2})\s*h(?:\s*(\d{1,2})\s*(?:min|minutes?)?)?$/i.exec(trimmed)
+  if (hourMin?.[1]) {
+    const total = Number(hourMin[1]) * 60 + Number(hourMin[2] ?? 0)
     return total > 0 ? total : null
   }
+
   const plain = /^(\d{1,3})\s*(?:min|minutes?)$/i.exec(trimmed)
   return plain?.[1] ? Number(plain[1]) : null
 }
 
-const FRACTION_MAP: Record<string, string> = {
-  '¼': '0.25',
-  '½': '0.5',
-  '¾': '0.75',
-  '⅓': '0.33',
-  '⅔': '0.66',
+const FRENCH_INGREDIENT_OPTIONS: ParseIngredientOptions = {
+  ignoreUOMs: ['c', 'c.', 'C', 'C.', 't', 't.', 'T', 'T.', 'm', 'm.', 'small', 'medium', 'large'],
+  additionalUOMs: {
+    'c. à s.': { short: 'c. à s.', plural: 'c. à s.', alternates: ['__cas__'] },
+    'c. à soupe': { short: 'c. à soupe', plural: 'c. à soupe', alternates: ['__cas_long__'] },
+    'c. à c.': { short: 'c. à c.', plural: 'c. à c.', alternates: ['__cac__'] },
+    'c. à café': { short: 'c. à café', plural: 'c. à café', alternates: ['__cac_long__'] },
+    gousse: { short: 'gousse', plural: 'gousses', alternates: [] },
+    pincée: { short: 'pincée', plural: 'pincées', alternates: ['pincee', 'pincees'] },
+    tranche: { short: 'tranche', plural: 'tranches', alternates: [] },
+    sachet: { short: 'sachet', plural: 'sachets', alternates: [] },
+    boîte: { short: 'boîte', plural: 'boîtes', alternates: ['boite', 'boites'] },
+    pot: { short: 'pot', plural: 'pots', alternates: [] },
+    brin: { short: 'brin', plural: 'brins', alternates: [] },
+    botte: { short: 'botte', plural: 'bottes', alternates: [] },
+    feuille: { short: 'feuille', plural: 'feuilles', alternates: [] },
+    verre: { short: 'verre', plural: 'verres', alternates: [] },
+    tasse: { short: 'tasse', plural: 'tasses', alternates: [] },
+    morceau: { short: 'morceau', plural: 'morceaux', alternates: [] },
+    filet: { short: 'filet', plural: 'filets', alternates: [] },
+    escalope: { short: 'escalope', plural: 'escalopes', alternates: [] },
+    pavé: { short: 'pavé', plural: 'pavés', alternates: ['pave', 'paves'] },
+    pièce: { short: 'pièce', plural: 'pièces', alternates: ['piece', 'pieces'] },
+    branche: { short: 'branche', plural: 'branches', alternates: [] },
+    bouquet: { short: 'bouquet', plural: 'bouquets', alternates: [] },
+    poignée: { short: 'poignée', plural: 'poignées', alternates: ['poignee', 'poignees'] },
+  },
+  groupHeaderPatterns: ['For', /^Pour\s/iu],
+  rangeSeparators: ['to', 'or', 'à'],
+  leadingQuantityPrefixes: ['environ', 'env.'],
+  descriptionStripPrefixes: [
+    'of',
+    'de',
+    /^d['’]\s*/iu,
+    /^de\s+l[ae'’]\s*/iu,
+    /^du\s+/iu,
+    /^des\s+/iu,
+  ],
 }
 
-const FRENCH_UNIT_REGEX =
-  /^(c\.?\s*à\s*s\.?|c\.?\s*à\s*c\.?|(?:cuill[eè]res?\s+à\s+soupe|cuill[eè]res?\s+à\s+café|kg|mg|g|ml|cl|dl|l|pincées?|gousses?|tranches?|sachets?|bo[îi]tes?|pots?|brins?|bottes?|feuilles?|verres?|tasses?|morceaux?|filets?|escalopes?|pavés?)\b)\.?\s*/i
+const SPOON_TOKEN_MAP: Record<string, string> = {
+  __cas__: 'c. à s.',
+  __cas_long__: 'c. à soupe',
+  __cac__: 'c. à c.',
+  __cac_long__: 'c. à café',
+}
 
 export function parseFrenchIngredient(rawLine: string): ImportedIngredient {
-  let line = decodeHtmlEntities(rawLine).replace(/^[-•*]\s*/, '')
-  for (const [glyph, decimal] of Object.entries(FRACTION_MAP)) {
-    line = line.replaceAll(glyph, decimal)
-  }
+  const cleanedLine = decodeHtmlEntities(rawLine)
+    .replace(/^[-•*]\s*/, '')
+    .replace(/(\d),(\d)/g, '$1.$2')
 
-  let quantity: string | null = null
-  let unit: string | null = null
+  const tokenizedLine = cleanedLine
+    .replace(/\b(?:cuill[eè]res?\s+à\s+soupe|c\.?\s*à\s*soupe)\b/gi, '__cas_long__')
+    .replace(/\bc\.?\s*à\s*s\.?(?=\s|$)/gi, '__cas__')
+    .replace(/\b(?:cuill[eè]res?\s+à\s+caf[eé]|c\.?\s*à\s*caf[eé])\b/gi, '__cac_long__')
+    .replace(/\bc\.?\s*à\s*c\.?(?=\s|$)/gi, '__cac__')
 
-  const qtyMatch = /^(\d+(?:[.,]\d+)?(?:\s*\/\s*\d+)?(?:\s*[-à]\s*\d+(?:[.,]\d+)?)?)\s*/.exec(line)
-  if (qtyMatch?.[1]) {
-    quantity = qtyMatch[1].replace(/\s+/g, '')
-    line = line.slice(qtyMatch[0].length)
-  }
-
-  if (quantity) {
-    const unitMatch = FRENCH_UNIT_REGEX.exec(line)
-    if (unitMatch?.[1]) {
-      unit = unitMatch[1].trim()
-      line = line.slice(unitMatch[0].length)
+  const [parsed] = parseIngredient(tokenizedLine, FRENCH_INGREDIENT_OPTIONS)
+  if (!parsed || parsed.isGroupHeader) {
+    return {
+      name: cleanedLine.slice(0, 140),
+      quantity: null,
+      unit: null,
+      notes: null,
     }
   }
 
-  line = line.replace(/^(?:de\s+|d['’]\s*)/i, '').trim()
-
+  let description = parsed.description
+    .replace(/__(?:cas|cac)(?:_long)?__/g, (token) => SPOON_TOKEN_MAP[token] ?? token)
+    .replace(/^(?:de\s+|d['’]\s*)/i, '')
+    .trim()
   let notes: string | null = null
-  const parenMatch = /\(([^)]+)\)\s*$/.exec(line)
+  const parenMatch = /\(([^)]+)\)\s*$/.exec(description)
   if (parenMatch?.[1]) {
     notes = parenMatch[1].trim()
-    line = line.slice(0, parenMatch.index).trim()
+    description = description.slice(0, parenMatch.index).trim()
   }
 
+  const quantity =
+    parsed.quantity !== null
+      ? parsed.quantity2 !== null
+        ? `${parsed.quantity}-${parsed.quantity2}`
+        : String(parsed.quantity)
+      : null
+
+  const unit = parsed.unitOfMeasure
+    ? (SPOON_TOKEN_MAP[parsed.unitOfMeasure] ?? parsed.unitOfMeasure).slice(0, 40)
+    : null
+
   return {
-    name: (line || decodeHtmlEntities(rawLine)).slice(0, 140),
+    name: (description || cleanedLine).slice(0, 140),
     quantity: quantity ? quantity.slice(0, 40) : null,
-    unit: unit ? unit.slice(0, 40) : null,
+    unit,
     notes: notes ? notes.slice(0, 140) : null,
   }
 }
 
 function isRecipeType(value: unknown): boolean {
-  if (typeof value === 'string') return value.toLowerCase() === 'recipe'
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    return normalized === 'recipe' || normalized.endsWith('/recipe')
+  }
   if (Array.isArray(value)) return value.some((entry) => isRecipeType(entry))
   return false
 }
@@ -178,9 +264,11 @@ function findRecipeNode(node: unknown): Record<string, unknown> | null {
   }
   const record = node as Record<string, unknown>
   if (isRecipeType(record['@type'])) return record
-  if (Array.isArray(record['@graph'])) {
-    const found = findRecipeNode(record['@graph'])
-    if (found) return found
+  for (const nestedKey of ['@graph', 'mainEntity', 'mainEntityOfPage']) {
+    if (record[nestedKey]) {
+      const found = findRecipeNode(record[nestedKey])
+      if (found) return found
+    }
   }
   return null
 }
@@ -216,7 +304,7 @@ function extractInstructions(value: unknown): string[] {
   const visit = (node: unknown) => {
     if (!node) return
     if (typeof node === 'string') {
-      const cleaned = decodeHtmlEntities(node.replace(/<[^>]+>/g, ' '))
+      const cleaned = stripHtmlToText(node)
       if (cleaned) steps.push(cleaned)
       return
     }
@@ -335,28 +423,74 @@ function extractTags(keywords: unknown, cuisine: unknown): string[] {
   return [...new Set(values)].slice(0, 12)
 }
 
+function extractMicrodataRecipeNode($: cheerio.CheerioAPI): Record<string, unknown> | null {
+  const root = $('[itemtype*="schema.org/Recipe" i]').first()
+  if (root.length === 0) return null
+
+  const propText = (prop: string) =>
+    root.find(`[itemprop="${prop}"]`).first().attr('content') ??
+    decodeHtmlEntities(root.find(`[itemprop="${prop}"]`).first().text())
+
+  const name = propText('name')
+  if (!name) return null
+
+  const recipeIngredient = root
+    .find('[itemprop="recipeIngredient"], [itemprop="ingredients"]')
+    .map((_, el) => $(el).attr('content') ?? decodeHtmlEntities($(el).text()))
+    .get()
+    .filter(Boolean)
+
+  const recipeInstructions = root
+    .find('[itemprop="recipeInstructions"]')
+    .map((_, el) => $(el).attr('content') ?? decodeHtmlEntities($(el).text()))
+    .get()
+    .filter(Boolean)
+
+  const imageEl = root.find('[itemprop="image"]').first()
+  const image = imageEl.attr('content') ?? imageEl.attr('src') ?? undefined
+
+  return {
+    '@type': 'Recipe',
+    name,
+    description: propText('description') || undefined,
+    image,
+    totalTime:
+      root.find('[itemprop="totalTime"]').first().attr('datetime') ?? propText('totalTime'),
+    prepTime: root.find('[itemprop="prepTime"]').first().attr('datetime') ?? propText('prepTime'),
+    cookTime: root.find('[itemprop="cookTime"]').first().attr('datetime') ?? propText('cookTime'),
+    recipeYield: propText('recipeYield') || undefined,
+    recipeCategory: propText('recipeCategory') || undefined,
+    keywords: propText('keywords') || undefined,
+    recipeCuisine: propText('recipeCuisine') || undefined,
+    recipeIngredient,
+    recipeInstructions,
+  }
+}
+
 export function extractSchemaOrgRecipe(
   html: string,
   sourceUrl: string,
 ): ImportedRecipeDraft | null {
-  const ldMatches = [
-    ...html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi),
-  ]
+  const $ = cheerio.load(html)
 
   let recipeNode: Record<string, unknown> | null = null
-  for (const match of ldMatches) {
-    const rawJson = match[1]?.trim()
-    if (!rawJson) continue
+  $('script[type*="ld+json" i]').each((_, element) => {
+    if (recipeNode) return
+    const rawJson = $(element).html()?.trim()
+    if (!rawJson) return
     try {
       const parsed: unknown = JSON.parse(rawJson)
       const found = findRecipeNode(parsed)
       if (found) {
         recipeNode = found
-        break
       }
     } catch {
       // Ignore malformed JSON-LD blocks and continue scanning
     }
+  })
+
+  if (!recipeNode) {
+    recipeNode = extractMicrodataRecipeNode($)
   }
 
   if (!recipeNode) return null
@@ -366,7 +500,7 @@ export function extractSchemaOrgRecipe(
 
   const description =
     typeof recipeNode['description'] === 'string' && recipeNode['description'].trim()
-      ? decodeHtmlEntities(recipeNode['description'].replace(/<[^>]+>/g, ' ')).slice(0, 1200)
+      ? stripHtmlToText(recipeNode['description']).slice(0, 1200)
       : null
 
   const rawIngredients = z
@@ -421,17 +555,39 @@ export async function importRecipeFromUrl(
   rawUrl: string,
   fetchImplementation: typeof fetch = fetch,
 ): Promise<ImportedRecipeDraft> {
-  const url = validateExternalRecipeUrl(rawUrl)
+  let currentUrl = validateExternalRecipeUrl(rawUrl)
+  const checkDns = fetchImplementation === fetch
 
-  let response: Response
-  try {
-    response = await fetchImplementation(url.toString(), {
-      headers: DEFAULT_HEADERS,
-      redirect: 'follow',
-      signal: AbortSignal.timeout(10_000),
-    })
-  } catch {
-    throw new RecipeImportError('Impossible de joindre ce site pour le moment.', 502)
+  let response: Response | null = null
+  for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
+    if (checkDns) {
+      await assertPublicDnsResolution(currentUrl.hostname)
+    }
+
+    try {
+      response = await fetchImplementation(currentUrl.toString(), {
+        headers: DEFAULT_HEADERS,
+        redirect: checkDns ? 'manual' : 'follow',
+        signal: AbortSignal.timeout(10_000),
+      })
+    } catch (error) {
+      if (error instanceof RecipeImportError) throw error
+      throw new RecipeImportError('Impossible de joindre ce site pour le moment.', 502)
+    }
+
+    if (checkDns && response.status >= 300 && response.status < 400) {
+      const location = response.headers.get('location')
+      if (!location) {
+        throw new RecipeImportError('Redirection invalide depuis ce site.', 502)
+      }
+      currentUrl = validateExternalRecipeUrl(new URL(location, currentUrl).toString())
+      continue
+    }
+    break
+  }
+
+  if (!response || (response.status >= 300 && response.status < 400)) {
+    throw new RecipeImportError('Trop de redirections vers cette recette.', 502)
   }
 
   if (!response.ok) {
@@ -447,7 +603,7 @@ export async function importRecipeFromUrl(
   }
 
   const html = (await response.text()).slice(0, MAX_HTML_BYTES)
-  const finalUrl = response.url || url.toString()
+  const finalUrl = response.url || currentUrl.toString()
 
   const extracted = extractSchemaOrgRecipe(html, finalUrl)
   if (!extracted) {

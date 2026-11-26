@@ -1,4 +1,8 @@
-import { decodeHtmlEntities } from './importer.js'
+import * as cheerio from 'cheerio'
+import { XMLParser } from 'fast-xml-parser'
+import { LRUCache } from 'lru-cache'
+import MiniSearch from 'minisearch'
+import { decodeHtmlEntities, importRecipeFromUrl } from './importer.js'
 
 export type CatalogSourceId = 'jow' | 'marmiton' | '750g' | 'cuisineaz' | 'hervecuisine'
 
@@ -9,6 +13,8 @@ export type ExternalCatalogItem = {
   url: string
   imageUrl: string | null
   description?: string | null
+  totalMinutes?: number | null
+  caloriesKcal?: number | null
 }
 
 export type CatalogSourceStatus = {
@@ -28,6 +34,8 @@ const DEFAULT_HEADERS = {
 function normalizeSearchText(value: string): string {
   return value
     .toLowerCase()
+    .replace(/œ/g, 'oe')
+    .replace(/æ/g, 'ae')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
 }
@@ -60,33 +68,92 @@ function resolveImgUrl(raw: string | undefined, baseUrl: string): string | null 
   }
 }
 
-// --- Jow (cached sitemap index) ---
-type JowIndexEntry = ExternalCatalogItem & { normalizedSearch: string }
-const JOW_CACHE_TTL_MS = 6 * 60 * 60 * 1000
-let jowCache: { expiresAt: number; entries: JowIndexEntry[] } | null = null
+function extractCardMinutes(textSnippet: string): number | null {
+  const hourMinMatch = /(\d{1,2})\s*h\s*(\d{1,2})?(?:\s*min)?\b/i.exec(textSnippet)
+  if (hourMinMatch?.[1]) {
+    const hours = Number.parseInt(hourMinMatch[1], 10)
+    const mins = hourMinMatch[2] ? Number.parseInt(hourMinMatch[2], 10) : 0
+    const total = hours * 60 + mins
+    if (total > 0 && total <= 720) return total
+  }
+  const minMatch = /\b(\d{1,3})\s*min(?:utes?)?\b/i.exec(textSnippet)
+  if (minMatch?.[1]) {
+    const mins = Number.parseInt(minMatch[1], 10)
+    if (mins > 0 && mins <= 720) return mins
+  }
+  return null
+}
+
+// --- Jow (XMLParser + MiniSearch + LRUCache) ---
+export type JowIndexEntry = ExternalCatalogItem & { normalizedSearch: string }
+
+const xmlParser = new XMLParser({
+  ignoreAttributes: true,
+  trimValues: true,
+  parseTagValue: false,
+  isArray: (name) => name === 'url' || name === 'video:video' || name === 'image:image',
+})
+
+function firstXmlString(node: unknown): string | undefined {
+  if (typeof node === 'string') return node.trim() || undefined
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      const found = firstXmlString(item)
+      if (found) return found
+    }
+  }
+  return undefined
+}
 
 export function parseJowSitemapXml(xml: string): JowIndexEntry[] {
   const entries: JowIndexEntry[] = []
   const seen = new Set<string>()
-  const urlBlockRegex = /<url>([\s\S]*?)<\/url>/gi
 
-  for (const match of xml.matchAll(urlBlockRegex)) {
-    const block = match[1] ?? ''
-    const locMatch = /<loc>([^<]+)<\/loc>/i.exec(block)
-    const url = locMatch?.[1]?.trim()
+  let parsed: Record<string, unknown>
+  try {
+    parsed = xmlParser.parse(xml) as Record<string, unknown>
+  } catch {
+    return entries
+  }
+
+  const urlset = parsed['urlset']
+  if (!urlset || typeof urlset !== 'object') return entries
+  const urls = (urlset as Record<string, unknown>)['url']
+  if (!Array.isArray(urls)) return entries
+
+  for (const item of urls) {
+    if (!item || typeof item !== 'object') continue
+    const record = item as Record<string, unknown>
+    const url = firstXmlString(record['loc'])
     if (!url || !url.includes('/recipes/') || seen.has(url)) continue
     seen.add(url)
 
-    const titleMatch = /<(?:video|image):title>([^<]+)<\/(?:video|image):title>/i.exec(block)
-    const imgMatch =
-      /<(?:video:thumbnail_loc|image:loc)>([^<]+)<\/(?:video:thumbnail_loc|image:loc)>/i.exec(block)
-    const descMatch = /<video:description>([^<]+)<\/video:description>/i.exec(block)
+    const videoNode = Array.isArray(record['video:video'])
+      ? (record['video:video'][0] as Record<string, unknown> | undefined)
+      : undefined
+    const imageNode = Array.isArray(record['image:image'])
+      ? (record['image:image'][0] as Record<string, unknown> | undefined)
+      : undefined
 
-    const title = titleMatch?.[1]
-      ? decodeHtmlEntities(titleMatch[1]).slice(0, 120)
-      : titleFromSlug(url)
-    const description = descMatch?.[1] ? decodeHtmlEntities(descMatch[1]).slice(0, 180) : null
-    const imageUrl = resolveImgUrl(imgMatch?.[1], 'https://jow.fr')
+    const rawTitle =
+      firstXmlString(videoNode?.['video:title']) ??
+      firstXmlString(imageNode?.['image:title']) ??
+      firstXmlString(record['video:title']) ??
+      firstXmlString(record['image:title'])
+    const rawImg =
+      firstXmlString(imageNode?.['image:loc']) ??
+      firstXmlString(videoNode?.['video:thumbnail_loc']) ??
+      firstXmlString(record['image:loc']) ??
+      firstXmlString(record['video:thumbnail_loc'])
+    const rawDesc =
+      firstXmlString(videoNode?.['video:description']) ??
+      firstXmlString(imageNode?.['image:caption']) ??
+      firstXmlString(record['video:description']) ??
+      firstXmlString(record['image:caption'])
+
+    const title = rawTitle ? decodeHtmlEntities(rawTitle).slice(0, 120) : titleFromSlug(url)
+    const description = rawDesc ? decodeHtmlEntities(rawDesc).slice(0, 180) : null
+    const imageUrl = resolveImgUrl(rawImg, 'https://jow.fr')
 
     entries.push({
       source: 'jow',
@@ -102,56 +169,164 @@ export function parseJowSitemapXml(xml: string): JowIndexEntry[] {
   return entries
 }
 
+type JowIndexedCatalog = {
+  byUrl: Map<string, JowIndexEntry>
+  index: MiniSearch<{ url: string; title: string; description: string }>
+}
+
+function buildJowSearchIndex(entries: JowIndexEntry[]): JowIndexedCatalog {
+  const index = new MiniSearch<{ url: string; title: string; description: string }>({
+    idField: 'url',
+    fields: ['title', 'description'],
+    processTerm: (term) => {
+      const normalized = normalizeSearchText(term)
+      return normalized.length >= 2 ? normalized : null
+    },
+    searchOptions: {
+      boost: { title: 2 },
+      prefix: true,
+      fuzzy: 0.2,
+      combineWith: 'AND',
+    },
+  })
+
+  const byUrl = new Map<string, JowIndexEntry>()
+  for (const entry of entries) {
+    byUrl.set(entry.url, entry)
+  }
+  index.addAll(
+    entries.map((entry) => ({
+      url: entry.url,
+      title: entry.title,
+      description: entry.description ?? '',
+    })),
+  )
+
+  return { byUrl, index }
+}
+
+const jowCatalogCache = new LRUCache<string, JowIndexedCatalog>({
+  max: 1,
+  ttl: 6 * 60 * 60 * 1000,
+})
+
+async function loadJowCatalog(fetchImplementation: typeof fetch): Promise<JowIndexedCatalog> {
+  if (fetchImplementation === fetch) {
+    const cached = jowCatalogCache.get('jow')
+    if (cached) return cached
+  }
+  const res = await fetchImplementation('https://jow.fr/sitemap.xml', {
+    headers: DEFAULT_HEADERS,
+    redirect: 'follow',
+    signal: AbortSignal.timeout(10_000),
+  })
+  if (!res.ok) throw new Error(`Jow sitemap ${res.status}`)
+  const built = buildJowSearchIndex(parseJowSitemapXml(await res.text()))
+  if (fetchImplementation === fetch) {
+    jowCatalogCache.set('jow', built)
+  }
+  return built
+}
+
 async function searchJowCatalog(
   query: string,
   limit: number,
   fetchImplementation: typeof fetch,
 ): Promise<ExternalCatalogItem[]> {
-  if (!jowCache || Date.now() >= jowCache.expiresAt) {
-    const res = await fetchImplementation('https://jow.fr/sitemap.xml', {
-      headers: DEFAULT_HEADERS,
-      redirect: 'follow',
-      signal: AbortSignal.timeout(10_000),
-    })
-    if (!res.ok) throw new Error(`Jow sitemap ${res.status}`)
-    const xml = await res.text()
-    jowCache = {
-      expiresAt: Date.now() + JOW_CACHE_TTL_MS,
-      entries: parseJowSitemapXml(xml),
-    }
-  }
-
-  const tokens = normalizeSearchText(query).split(/\s+/).filter(Boolean)
-  if (tokens.length === 0) return []
-
+  const catalog = await loadJowCatalog(fetchImplementation)
+  const hits = catalog.index.search(query)
   const results: ExternalCatalogItem[] = []
-  for (const entry of jowCache.entries) {
-    if (tokens.every((token) => entry.normalizedSearch.includes(token))) {
-      results.push({
-        source: entry.source,
-        sourceLabel: entry.sourceLabel,
-        title: entry.title,
-        url: entry.url,
-        imageUrl: entry.imageUrl,
-        description: entry.description ?? null,
-      })
-      if (results.length >= limit) break
-    }
+
+  for (const hit of hits) {
+    const entry = catalog.byUrl.get(String(hit.id))
+    if (!entry) continue
+    results.push({
+      source: entry.source,
+      sourceLabel: entry.sourceLabel,
+      title: entry.title,
+      url: entry.url,
+      imageUrl: entry.imageUrl,
+      description: entry.description ?? null,
+    })
+    if (results.length >= limit) break
   }
+
   return results
+}
+
+function pickElementImage($el: ReturnType<cheerio.CheerioAPI>, baseUrl: string): string | null {
+  const img = $el.find('img').first()
+  if (img.length > 0) {
+    const candidate = img.attr('data-src') ?? img.attr('src')
+    const resolved = resolveImgUrl(candidate, baseUrl)
+    if (resolved) return resolved
+  }
+  const source = $el
+    .find('source[srcset]')
+    .first()
+    .attr('srcset')
+    ?.split(/[\s,]+/)[0]
+  return resolveImgUrl(source, baseUrl)
+}
+
+function extractAnchorCards(
+  $: cheerio.CheerioAPI,
+  baseUrl: string,
+  urlPattern: RegExp,
+  source: CatalogSourceId,
+  sourceLabel: string,
+  limit: number,
+): ExternalCatalogItem[] {
+  const items: ExternalCatalogItem[] = []
+  const seen = new Set<string>()
+
+  for (const element of $('a[href]').toArray()) {
+    if (items.length >= limit) break
+    const $a = $(element)
+    const rawHref = $a.attr('href')?.trim()
+    if (!rawHref) continue
+
+    let resolved: string
+    try {
+      const parsed = new URL(rawHref, baseUrl)
+      parsed.hash = ''
+      resolved = parsed.toString()
+    } catch {
+      continue
+    }
+    if (!urlPattern.test(resolved) || seen.has(resolved)) continue
+
+    const imageUrl = pickElementImage($a, baseUrl)
+    const altText = $a.find('img[alt]').first().attr('alt')
+    const textContent = decodeHtmlEntities($a.text())
+    const title =
+      (textContent.length >= 4 && textContent.length <= 120 ? textContent : null) ??
+      (altText ? decodeHtmlEntities(altText) : null) ??
+      titleFromSlug(resolved)
+
+    seen.add(resolved)
+    items.push({
+      source,
+      sourceLabel,
+      title: title.slice(0, 120),
+      url: resolved,
+      imageUrl,
+    })
+  }
+
+  return items
 }
 
 // --- Marmiton ---
 export function parseMarmitonSearchHtml(html: string, limit: number): ExternalCatalogItem[] {
+  const $ = cheerio.load(html)
   const items: ExternalCatalogItem[] = []
   const seen = new Set<string>()
 
-  const ldMatches = [
-    ...html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi),
-  ]
-  for (const match of ldMatches) {
+  for (const element of $('script[type*="ld+json" i]').toArray()) {
+    if (items.length >= limit) break
     try {
-      const parsed: unknown = JSON.parse(match[1] ?? '')
+      const parsed: unknown = JSON.parse($(element).html() ?? '')
       const rawNodes = Array.isArray(parsed)
         ? parsed
         : parsed &&
@@ -162,6 +337,7 @@ export function parseMarmitonSearchHtml(html: string, limit: number): ExternalCa
       for (const node of rawNodes) {
         if (
           node &&
+          typeof node !== 'string' &&
           typeof node === 'object' &&
           (node as Record<string, unknown>)['@type'] === 'ItemList'
         ) {
@@ -203,7 +379,7 @@ export function parseMarmitonSearchHtml(html: string, limit: number): ExternalCa
   if (items.length > 0) return items.slice(0, limit)
 
   return extractAnchorCards(
-    html,
+    $,
     'https://www.marmiton.org',
     /^https:\/\/www\.marmiton\.org\/recettes\/recette_[^?#]+\.aspx$/i,
     'marmiton',
@@ -214,34 +390,45 @@ export function parseMarmitonSearchHtml(html: string, limit: number): ExternalCa
 
 // --- 750g ---
 export function parse750gSearchHtml(html: string, limit: number): ExternalCatalogItem[] {
+  const $ = cheerio.load(html)
   const items: ExternalCatalogItem[] = []
   const seen = new Set<string>()
-  const linkRegex =
-    /<a\b[^>]*href=["'](https:\/\/www\.750g\.com\/[^"'?#]+-r\d+\.htm)["'][^>]*>([\s\S]*?)<\/a>/gi
+  const urlPattern = /^https:\/\/www\.750g\.com\/[^"'?#]+-r\d+\.htm$/i
 
-  for (const match of html.matchAll(linkRegex)) {
-    const url = match[1]?.trim()
-    if (!url || seen.has(url)) continue
+  for (const element of $('a[href]').toArray()) {
+    if (items.length >= limit) break
+    const $a = $(element)
+    const rawHref = $a.attr('href')?.trim()
+    if (!rawHref) continue
+
+    let url: string
+    try {
+      url = new URL(rawHref, 'https://www.750g.com').toString()
+    } catch {
+      continue
+    }
+    if (!urlPattern.test(url) || seen.has(url)) continue
     seen.add(url)
 
-    const matchIndex = match.index ?? 0
-    const preceding = html.slice(Math.max(0, matchIndex - 900), matchIndex)
-    const imgMatches = [
-      ...preceding.matchAll(
-        /<img\b[^>]+(?:data-src|src)=["'](https:\/\/static\.750g\.com\/images\/[^"']+)["'][^>]*>/gi,
-      ),
-    ]
-    const lastImg = imgMatches.at(-1)?.[1]
-    // Upgrade 145-110 thumbnails to crisper 640-420 when pattern matches
-    const imageUrl = lastImg
+    const $card = $a.closest('article, li, .card, .c-recipe-row')
+    const $scope = $card.length > 0 ? $card : $a.parent().prevAll().addBack()
+    let rawImg: string | undefined
+    for (const imgEl of $scope.find('img').toArray()) {
+      const src = $(imgEl).attr('data-src') ?? $(imgEl).attr('src')
+      if (src?.startsWith('https://static.750g.com/images/')) {
+        rawImg = src
+      }
+    }
+    const imageUrl = rawImg
       ? resolveImgUrl(
-          lastImg.replace('/images/145-110/', '/images/640-420/'),
+          rawImg.replace('/images/145-110/', '/images/640-420/'),
           'https://www.750g.com',
         )
       : null
 
-    const rawText = decodeHtmlEntities((match[2] ?? '').replace(/<[^>]+>/g, ' '))
+    const rawText = decodeHtmlEntities($a.text())
     const title = rawText.length >= 3 ? rawText.slice(0, 120) : titleFromSlug(url)
+    const totalMinutes = extractCardMinutes($scope.text())
 
     items.push({
       source: '750g',
@@ -249,8 +436,8 @@ export function parse750gSearchHtml(html: string, limit: number): ExternalCatalo
       title,
       url,
       imageUrl,
+      ...(totalMinutes !== null ? { totalMinutes } : {}),
     })
-    if (items.length >= limit) break
   }
 
   return items
@@ -258,103 +445,56 @@ export function parse750gSearchHtml(html: string, limit: number): ExternalCatalo
 
 // --- CuisineAZ ---
 export function parseCuisineAzSearchHtml(html: string, limit: number): ExternalCatalogItem[] {
+  const $ = cheerio.load(html)
   const items: ExternalCatalogItem[] = []
   const seen = new Set<string>()
-  const articleRegex =
-    /<article\b[^>]*class=["'][^"']*searchResult[^"']*["'][^>]*>([\s\S]*?)<\/article>/gi
+  const linkPattern = /^(?:https:\/\/www\.cuisineaz\.com)?\/recettes\/[^"'?#]+-\d+\.aspx$/i
 
-  for (const match of html.matchAll(articleRegex)) {
-    const card = match[1] ?? ''
-    const linkMatch =
-      /<a\b[^>]*href=["']((?:https:\/\/www\.cuisineaz\.com)?\/recettes\/[^"'?#]+-\d+\.aspx)["'][^>]*>([\s\S]*?)<\/a>/i.exec(
-        card,
-      )
-    if (!linkMatch?.[1]) continue
+  for (const articleEl of $('article.searchResult').toArray()) {
+    if (items.length >= limit) break
+    const $card = $(articleEl)
+    let matchedLink: ReturnType<cheerio.CheerioAPI> | null = null
+    let resolvedUrl = ''
 
-    let url: string
-    try {
-      url = new URL(linkMatch[1], 'https://www.cuisineaz.com').toString()
-    } catch {
-      continue
+    for (const linkEl of $card.find('a[href]').toArray()) {
+      const href = $(linkEl).attr('href')?.trim() ?? ''
+      if (!linkPattern.test(href)) continue
+      try {
+        resolvedUrl = new URL(href, 'https://www.cuisineaz.com').toString()
+        matchedLink = $(linkEl)
+        break
+      } catch {
+        continue
+      }
     }
-    if (seen.has(url)) continue
-    seen.add(url)
 
-    const imgMatch =
-      /<img\b[^>]+(?:data-src|src)=["']([^"']+)["'][^>]*>/i.exec(card) ??
-      /<source\b[^>]+srcset=["']([^"'\s,]+)/i.exec(card)
-    const imageUrl = resolveImgUrl(imgMatch?.[1], 'https://www.cuisineaz.com')
+    if (!matchedLink || !resolvedUrl || seen.has(resolvedUrl)) continue
+    seen.add(resolvedUrl)
 
-    const rawTitle = decodeHtmlEntities((linkMatch[2] ?? '').replace(/<[^>]+>/g, ' '))
+    const imageUrl = pickElementImage($card, 'https://www.cuisineaz.com')
+    const rawTitle = decodeHtmlEntities(matchedLink.text())
       .replace(/^Recette\s*:\s*/i, '')
       .trim()
+    const totalMinutes = extractCardMinutes($card.text())
 
     items.push({
       source: 'cuisineaz',
       sourceLabel: 'CuisineAZ',
-      title: (rawTitle || titleFromSlug(url)).slice(0, 120),
-      url,
+      title: (rawTitle || titleFromSlug(resolvedUrl)).slice(0, 120),
+      url: resolvedUrl,
       imageUrl,
+      ...(totalMinutes !== null ? { totalMinutes } : {}),
     })
-    if (items.length >= limit) break
   }
 
   return items
 }
 
 // --- Hervé Cuisine ---
-function extractAnchorCards(
-  html: string,
-  baseUrl: string,
-  urlPattern: RegExp,
-  source: CatalogSourceId,
-  sourceLabel: string,
-  limit: number,
-): ExternalCatalogItem[] {
-  const items: ExternalCatalogItem[] = []
-  const seen = new Set<string>()
-  const anchorRegex = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi
-
-  for (const match of html.matchAll(anchorRegex)) {
-    const rawHref = match[1]?.trim()
-    const inner = match[2] ?? ''
-    if (!rawHref) continue
-    let resolved: string
-    try {
-      const parsed = new URL(rawHref, baseUrl)
-      parsed.hash = ''
-      resolved = parsed.toString()
-    } catch {
-      continue
-    }
-    if (!urlPattern.test(resolved) || seen.has(resolved)) continue
-
-    const imgMatch = /<img\b[^>]+(?:data-src|src)=["']([^"']+)["'][^>]*>/i.exec(inner)
-    const imageUrl = resolveImgUrl(imgMatch?.[1], baseUrl)
-    const altMatch = /<img\b[^>]+alt=["']([^"']+)["']/i.exec(inner)
-    const textContent = decodeHtmlEntities(inner.replace(/<[^>]+>/g, ' '))
-    const title =
-      (textContent.length >= 4 && textContent.length <= 120 ? textContent : null) ??
-      (altMatch?.[1] ? decodeHtmlEntities(altMatch[1]) : null) ??
-      titleFromSlug(resolved)
-
-    seen.add(resolved)
-    items.push({
-      source,
-      sourceLabel,
-      title: title.slice(0, 120),
-      url: resolved,
-      imageUrl,
-    })
-    if (items.length >= limit) break
-  }
-
-  return items
-}
-
 export function parseHerveCuisineSearchHtml(html: string, limit: number): ExternalCatalogItem[] {
+  const $ = cheerio.load(html)
   return extractAnchorCards(
-    html,
+    $,
     'https://www.hervecuisine.com',
     /^https:\/\/www\.hervecuisine\.com\/recette\/[^/?#]+\/?$/i,
     'hervecuisine',
@@ -424,6 +564,46 @@ const CATALOG_ADAPTERS: ReadonlyArray<{
   },
 ]
 
+type EnrichedMeta = {
+  imageUrl: string | null
+  description: string | null
+  totalMinutes: number | null
+  caloriesKcal: number | null
+}
+
+const fastEnrichFetch: typeof fetch = (input, init) =>
+  fetch(input, { ...init, signal: AbortSignal.timeout(3_500) })
+
+const enrichCache = new LRUCache<string, EnrichedMeta>({
+  max: 500,
+  ttl: 6 * 60 * 60 * 1000,
+  fetchMethod: async (url) => {
+    const draft = await importRecipeFromUrl(url, fastEnrichFetch)
+    return {
+      imageUrl: draft.imageUrl,
+      description: draft.description,
+      totalMinutes: draft.totalMinutes,
+      caloriesKcal: draft.nutrition?.caloriesKcal ?? null,
+    }
+  },
+})
+
+async function enrichCatalogItem(item: ExternalCatalogItem): Promise<ExternalCatalogItem> {
+  try {
+    const meta = await enrichCache.fetch(item.url)
+    if (!meta) return item
+    return {
+      ...item,
+      imageUrl: item.imageUrl ?? meta.imageUrl,
+      description: item.description ?? meta.description,
+      totalMinutes: item.totalMinutes ?? meta.totalMinutes,
+      caloriesKcal: item.caloriesKcal ?? meta.caloriesKcal,
+    }
+  } catch {
+    return item
+  }
+}
+
 export async function searchExternalCatalog(
   source: CatalogSourceId | 'all',
   rawQuery: string,
@@ -458,8 +638,12 @@ export async function searchExternalCatalog(
     }),
   )
 
+  const rawItems = settled.flatMap((entry) => entry.items)
+  const items =
+    fetchImplementation === fetch ? await Promise.all(rawItems.map(enrichCatalogItem)) : rawItems
+
   return {
-    items: settled.flatMap((entry) => entry.items),
+    items,
     sourceStatuses: settled.map((entry) => entry.status),
   }
 }
