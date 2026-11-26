@@ -3,6 +3,7 @@ import {
   type RecipeDetail,
   type RecipeListResponse,
   type RecipeMetric,
+  type RecipeNutrition,
   type RecipeSummary,
   type RecipeWriteInput,
 } from '@quisera/shared'
@@ -25,6 +26,8 @@ import {
   recipeTag,
   recipeTagAssignment,
 } from '../db/schema.js'
+import { searchExternalCatalog } from './catalog-search.js'
+import { importRecipeFromUrl, RecipeImportError } from './importer.js'
 
 const querySchema = z.object({
   q: z.string().trim().max(100).default(''),
@@ -263,6 +266,43 @@ function readDecorations(database: DatabaseClient, recipeIds: string[], userId: 
   return result
 }
 
+function metricNumber(metrics: readonly RecipeMetric[], key: string): number | null {
+  const found = metrics.find((item) => item.key === key)
+  if (!found) return null
+  const num = Number(found.value)
+  return Number.isFinite(num) ? num : null
+}
+
+function nutritionFromMetrics(metrics: readonly RecipeMetric[]): RecipeNutrition | null {
+  const caloriesKcal = metricNumber(metrics, 'calories')
+  const proteinGrams = metricNumber(metrics, 'protein')
+  const carbsGrams = metricNumber(metrics, 'carbs')
+  const fatGrams = metricNumber(metrics, 'fat')
+  const fiberGrams = metricNumber(metrics, 'fiber')
+  const sugarGrams = metricNumber(metrics, 'sugar')
+  const saltGrams = metricNumber(metrics, 'salt')
+  if (
+    caloriesKcal === null &&
+    proteinGrams === null &&
+    carbsGrams === null &&
+    fatGrams === null &&
+    fiberGrams === null &&
+    sugarGrams === null &&
+    saltGrams === null
+  ) {
+    return null
+  }
+  return {
+    caloriesKcal: caloriesKcal !== null ? Math.round(caloriesKcal) : null,
+    proteinGrams,
+    carbsGrams,
+    fatGrams,
+    fiberGrams,
+    sugarGrams,
+    saltGrams,
+  }
+}
+
 function toSummary(row: typeof recipe.$inferSelect, decorations: Decorations): RecipeSummary {
   return {
     id: row.id,
@@ -273,10 +313,12 @@ function toSummary(row: typeof recipe.$inferSelect, decorations: Decorations): R
     thumbnailUrl:
       row.photoThumbnailUrl ?? (row.photoKey ? `/api/recipes/${row.id}/photo` : row.photoUrl),
     totalMinutes: row.totalMinutes,
+    servings: row.servings,
     difficulty: row.difficulty,
     category: decorations.category,
     tags: decorations.tags,
     metrics: decorations.metrics,
+    nutrition: nutritionFromMetrics(decorations.metrics),
     isFavorite: decorations.isFavorite,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -489,6 +531,119 @@ export function createRecipeRoutes(
       if (storedFile) await removePhoto(photoDirectory, body.photo?.key)
       return errorResponse(context, 'Impossible d’enregistrer la recette.', 500)
     }
+    return context.json(readRecipeDetail(database, id, context.get('session').user.id), 201)
+  })
+
+  router.get('/external/search', async (context) => {
+    const parsed = z
+      .object({
+        q: z.string().trim().min(2, 'Saisissez au moins 2 caractères.').max(100),
+        source: z
+          .enum(['all', 'jow', 'marmiton', '750g', 'cuisineaz', 'hervecuisine'])
+          .default('all'),
+      })
+      .safeParse(context.req.query())
+    if (!parsed.success) {
+      return errorResponse(context, parsed.error.issues[0]?.message ?? 'Recherche invalide.', 400)
+    }
+    const results = await searchExternalCatalog(
+      parsed.data.source,
+      parsed.data.q,
+      parsed.data.source === 'all' ? 6 : 16,
+    )
+    return context.json(results)
+  })
+
+  router.post('/import-url', async (context) => {
+    const parsed = z
+      .object({
+        url: z.string().trim().min(1, 'Saisissez un lien de recette.'),
+        save: z.boolean().default(false),
+      })
+      .safeParse(await context.req.json().catch(() => null))
+    if (!parsed.success) {
+      return errorResponse(context, parsed.error.issues[0]?.message ?? 'Requête invalide.', 400)
+    }
+
+    let draft
+    try {
+      draft = await importRecipeFromUrl(parsed.data.url)
+    } catch (error) {
+      if (error instanceof RecipeImportError) {
+        return context.json({ error: error.message }, error.status as 400 | 413 | 422 | 502)
+      }
+      return context.json({ error: 'Impossible d’importer cette recette.' }, 502)
+    }
+
+    if (!parsed.data.save) {
+      return context.json({ draft })
+    }
+
+    const id = randomUUID()
+    const now = new Date()
+    const writeData: RecipeWriteInput = {
+      title: draft.title,
+      description: draft.description,
+      totalMinutes: draft.totalMinutes,
+      difficulty: null,
+      category: draft.category,
+      tags: draft.tags,
+      ingredients: draft.ingredients,
+      steps: draft.steps.map((instructions) => ({ instructions })),
+    }
+
+    try {
+      database.transaction((transaction) => {
+        transaction
+          .insert(recipe)
+          .values({
+            id,
+            source: 'house',
+            title: writeData.title,
+            description: writeData.description,
+            photoUrl: draft.imageUrl,
+            photoThumbnailUrl: draft.imageUrl,
+            totalMinutes: writeData.totalMinutes,
+            servings: draft.servings,
+            difficulty: writeData.difficulty,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .run()
+        addRecipeContent(transaction, id, writeData)
+        if (draft.nutrition) {
+          const metricEntries: ReadonlyArray<[string, number | null, string]> = [
+            ['calories', draft.nutrition.caloriesKcal, 'kcal'],
+            ['protein', draft.nutrition.proteinGrams, 'g'],
+            ['carbs', draft.nutrition.carbsGrams, 'g'],
+            ['fat', draft.nutrition.fatGrams, 'g'],
+            ['fiber', draft.nutrition.fiberGrams, 'g'],
+            ['sugar', draft.nutrition.sugarGrams, 'g'],
+            ['salt', draft.nutrition.saltGrams, 'g'],
+          ]
+          for (const [key, value, unit] of metricEntries) {
+            if (value === null) continue
+            transaction
+              .insert(recipeMetric)
+              .values({
+                id: randomUUID(),
+                recipeId: id,
+                key,
+                value: String(value),
+                unit,
+                provenance: draft.sourceHost,
+                method: draft.strategy,
+                recordedAt: now,
+              })
+              .onConflictDoNothing()
+              .run()
+          }
+        }
+      })
+    } catch {
+      return errorResponse(context, 'Impossible d’enregistrer la recette importée.', 500)
+    }
+
     return context.json(readRecipeDetail(database, id, context.get('session').user.id), 201)
   })
 
