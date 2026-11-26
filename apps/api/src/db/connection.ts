@@ -33,6 +33,9 @@ export function openDatabase(databasePath: string): DatabaseConnection {
 
     if (resolvedPath !== ':memory:') {
       sqlite.pragma('journal_mode = WAL')
+      sqlite.pragma('synchronous = NORMAL')
+      sqlite.pragma('cache_size = -16000')
+      sqlite.pragma('temp_store = MEMORY')
     }
 
     const client = drizzle(sqlite, { schema })

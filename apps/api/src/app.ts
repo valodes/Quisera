@@ -1,5 +1,6 @@
 import type { HttpBindings } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
+import { compress } from 'hono/compress'
 import { createMiddleware } from 'hono/factory'
 import { HTTPException } from 'hono/http-exception'
 import { Hono } from 'hono'
@@ -45,6 +46,8 @@ export function requireSession(auth: AuthInstance) {
 
 export function createApp({ auth, database, environment, quitoquePlanningClient }: Dependencies) {
   const app = new Hono<ApiHonoEnvironment>()
+
+  app.use('*', compress())
 
   app.onError((error, context) => {
     if (error instanceof HTTPException) {
@@ -152,6 +155,10 @@ export function createApp({ auth, database, environment, quitoquePlanningClient 
   )
 
   if (environment.WEB_ASSETS_DIR) {
+    app.use('/assets/*', async (context, next) => {
+      await next()
+      context.header('Cache-Control', 'public, max-age=31536000, immutable')
+    })
     app.use('/*', serveStatic({ root: environment.WEB_ASSETS_DIR }))
     app.get(
       '*',
