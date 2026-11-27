@@ -7,6 +7,8 @@ import {
   type RecipeSummary,
   type RecipeWriteInput,
 } from '@quisera/shared'
+import { scaleIngredientsForServings } from '@quisera/shared/servings'
+import { getHouseholdPlanningPreferences } from '../household/routes.js'
 import { and, asc, count, desc, eq, exists, inArray, or, sql } from 'drizzle-orm'
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
@@ -601,6 +603,7 @@ export function createRecipeRoutes(
             photoKey: body.photo?.key ?? null,
             photoMimeType: body.photo?.mimeType ?? null,
             totalMinutes: body.data.totalMinutes,
+            servings: body.data.servings ?? null,
             difficulty: body.data.difficulty,
             createdAt: now,
             updatedAt: now,
@@ -640,6 +643,7 @@ export function createRecipeRoutes(
       .object({
         url: z.string().trim().min(1, 'Saisissez un lien de recette.'),
         save: z.boolean().default(false),
+        keepOriginalServings: z.boolean().default(false),
       })
       .safeParse(await context.req.json().catch(() => null))
     if (!parsed.success) {
@@ -660,16 +664,27 @@ export function createRecipeRoutes(
       return context.json({ draft })
     }
 
+    const householdServings = getHouseholdPlanningPreferences(
+      database,
+      context.get('session').user.id,
+    ).defaultServings
+    const finalServings = parsed.data.keepOriginalServings ? draft.servings : householdServings
+    const finalIngredients =
+      !parsed.data.keepOriginalServings && draft.servings && draft.servings !== householdServings
+        ? scaleIngredientsForServings(draft.ingredients, draft.servings, householdServings)
+        : draft.ingredients
+
     const id = randomUUID()
     const now = new Date()
     const writeData: RecipeWriteInput = {
       title: draft.title,
       description: draft.description,
       totalMinutes: draft.totalMinutes,
+      servings: finalServings,
       difficulty: null,
       category: draft.category,
       tags: draft.tags,
-      ingredients: draft.ingredients,
+      ingredients: finalIngredients,
       steps: draft.steps.map((instructions) => ({ instructions })),
     }
 
@@ -685,7 +700,7 @@ export function createRecipeRoutes(
             photoUrl: draft.imageUrl,
             photoThumbnailUrl: draft.imageUrl,
             totalMinutes: writeData.totalMinutes,
-            servings: draft.servings,
+            servings: finalServings,
             difficulty: writeData.difficulty,
             createdAt: now,
             updatedAt: now,
@@ -811,6 +826,7 @@ export function createRecipeRoutes(
             title: body.data.title,
             description: body.data.description,
             totalMinutes: body.data.totalMinutes,
+            servings: body.data.servings !== undefined ? body.data.servings : existing.servings,
             difficulty: body.data.difficulty,
             photoKey: body.photo?.key ?? existing.photoKey,
             photoMimeType: body.photo?.mimeType ?? existing.photoMimeType,

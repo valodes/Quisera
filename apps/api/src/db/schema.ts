@@ -387,6 +387,7 @@ export const householdPlanningPreferences = sqliteTable('household_planning_pref
   householdId: text('household_id')
     .primaryKey()
     .references(() => household.id, { onDelete: 'cascade' }),
+  defaultServings: integer('default_servings'),
   freshProductsMaxDays: integer('fresh_products_max_days'),
   requiredSlotsJson: text('required_slots_json').notNull().default('[]'),
   excludedSlotsJson: text('excluded_slots_json').notNull().default('[]'),
@@ -409,6 +410,27 @@ export const householdPlanningPreferences = sqliteTable('household_planning_pref
     .default(true),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 })
+
+export const fridgeItem = sqliteTable(
+  'fridge_item',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    normalizedName: text('normalized_name').notNull(),
+    quantity: text('quantity'),
+    unit: text('unit'),
+    zone: text('zone', { enum: ['fridge', 'pantry', 'freezer'] })
+      .notNull()
+      .default('fridge'),
+    expiresOn: text('expires_on'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (table) => [
+    index('fridge_item_zone_expires_idx').on(table.zone, table.expiresOn),
+    index('fridge_item_normalized_name_idx').on(table.normalizedName),
+  ],
+)
 
 export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),
@@ -445,6 +467,7 @@ export const schema = {
   householdMember,
   householdInvitation,
   householdPlanningPreferences,
+  fridgeItem,
   userRelations,
   sessionRelations,
   accountRelations,

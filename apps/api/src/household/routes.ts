@@ -152,15 +152,29 @@ export function getHouseholdPlanningPreferences(
   userId: string,
 ): HouseholdPlanningPreferences {
   const { household: currentHousehold } = ensureUserHousehold(database, userId)
+  const memberCount = Math.max(
+    1,
+    database
+      .select({ userId: householdMember.userId })
+      .from(householdMember)
+      .where(eq(householdMember.householdId, currentHousehold.id))
+      .all().length,
+  )
   const row = database
     .select()
     .from(householdPlanningPreferences)
     .where(eq(householdPlanningPreferences.householdId, currentHousehold.id))
     .get()
 
-  if (!row) return { ...defaultHouseholdPlanningPreferences }
+  if (!row) {
+    return {
+      ...defaultHouseholdPlanningPreferences,
+      defaultServings: memberCount,
+    }
+  }
 
   return {
+    defaultServings: row.defaultServings ?? memberCount,
     freshProductsMaxDays: row.freshProductsMaxDays,
     requiredSlots: parseJsonArray<SlotPreferenceKey>(
       row.requiredSlotsJson,
@@ -625,9 +639,11 @@ export function createHouseholdRoutes(
     }
 
     const data = body.data
+    const existing = getHouseholdPlanningPreferences(database, current.user.id)
     const now = new Date()
     const values = {
       householdId: currentHousehold.id,
+      defaultServings: data.defaultServings ?? existing.defaultServings,
       freshProductsMaxDays: data.freshProductsMaxDays,
       requiredSlotsJson: JSON.stringify([...new Set(data.requiredSlots)]),
       excludedSlotsJson: JSON.stringify([...new Set(data.excludedSlots)]),
@@ -647,6 +663,7 @@ export function createHouseholdRoutes(
       .onConflictDoUpdate({
         target: householdPlanningPreferences.householdId,
         set: {
+          defaultServings: values.defaultServings,
           freshProductsMaxDays: values.freshProductsMaxDays,
           requiredSlotsJson: values.requiredSlotsJson,
           excludedSlotsJson: values.excludedSlotsJson,

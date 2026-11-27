@@ -270,11 +270,13 @@ describe('profile and household management', () => {
     expect(initialRes.status).toBe(200)
     const initialBody = (await initialRes.json()) as {
       preferences: {
+        defaultServings: number
         freshProductsMaxDays: number | null
         requiredSlots: string[]
         excludedSlots: string[]
       }
     }
+    expect(initialBody.preferences.defaultServings).toBe(1)
     expect(initialBody.preferences.freshProductsMaxDays).toBe(3)
     expect(initialBody.preferences.requiredSlots).toContain('1:lunch')
 
@@ -310,6 +312,7 @@ describe('profile and household management', () => {
         'content-type': 'application/json',
       },
       body: JSON.stringify({
+        defaultServings: 4,
         freshProductsMaxDays: 2,
         requiredSlots: ['1:lunch', '2:lunch', '3:lunch', '4:lunch', '5:lunch'],
         excludedSlots: ['5:dinner'],
@@ -330,6 +333,7 @@ describe('profile and household management', () => {
     expect(reloadedRes.status).toBe(200)
     const reloadedBody = (await reloadedRes.json()) as {
       preferences: {
+        defaultServings: number
         freshProductsMaxDays: number | null
         excludedSlots: string[]
         maxDailyCalories: number | null
@@ -337,6 +341,7 @@ describe('profile and household management', () => {
         avoidConsecutiveSameStarch: boolean
       }
     }
+    expect(reloadedBody.preferences.defaultServings).toBe(4)
     expect(reloadedBody.preferences.freshProductsMaxDays).toBe(2)
     expect(reloadedBody.preferences.excludedSlots).toEqual(['5:dinner'])
     expect(reloadedBody.preferences.maxDailyCalories).toBe(1600)
