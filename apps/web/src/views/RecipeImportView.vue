@@ -2,9 +2,10 @@
 defineOptions({ name: 'RecipeImportView' })
 
 import { ArrowLeft, Check, Download, ExternalLink, Globe, Link2, Search } from '@lucide/vue'
+import { scaleIngredientsForServings } from '@quisera/shared/servings'
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
-import { ref, shallowRef } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
+import { computed, onMounted, ref, shallowRef } from 'vue'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import RecipeCard from '@/components/recipes/RecipeCard.vue'
 import RecipeDraftContent from '@/components/recipes/RecipeDraftContent.vue'
 import Button from '@/components/ui/Button.vue'
@@ -12,6 +13,7 @@ import ModalDialog from '@/components/ui/ModalDialog.vue'
 import TextInput from '@/components/ui/TextInput.vue'
 import { useToast } from '@/components/ui/toast'
 import { queryClient, queryKeys } from '@/lib/query'
+import { useHouseholdDefaultServings } from '@/recipes/useRecipeServings'
 import '@/styles/recipes.css'
 import {
   importRecipeUrl,
@@ -23,8 +25,25 @@ import {
   type ImportedRecipeDraft,
 } from '@/recipes/api'
 
+const route = useRoute()
 const router = useRouter()
 const toast = useToast()
+const defaultServings = useHouseholdDefaultServings()
+const keepOriginalServings = ref(false)
+
+function applyHouseholdServings(source: ImportedRecipeDraft | null): ImportedRecipeDraft | null {
+  if (!source) return null
+  if (keepOriginalServings.value) return source
+  const target = defaultServings.value
+  if (!source.servings || source.servings === target) {
+    return { ...source, servings: source.servings ?? target }
+  }
+  return {
+    ...source,
+    servings: target,
+    ingredients: scaleIngredientsForServings(source.ingredients, source.servings, target),
+  }
+}
 
 const activeTab = ref<'url' | 'catalog'>('catalog')
 
@@ -62,6 +81,18 @@ const modalError = ref('')
 const modalDraft = shallowRef<ImportedRecipeDraft | null>(null)
 const modalSaving = ref(false)
 
+const displayedDraft = computed(() => applyHouseholdServings(draft.value))
+const displayedModalDraft = computed(() => applyHouseholdServings(modalDraft.value))
+
+onMounted(() => {
+  const initialUrl = typeof route.query['url'] === 'string' ? route.query['url'].trim() : ''
+  if (initialUrl) {
+    activeTab.value = 'url'
+    urlInput.value = initialUrl
+    void analyzeUrl()
+  }
+})
+
 async function analyzeUrl() {
   urlError.value = ''
   draft.value = null
@@ -87,7 +118,9 @@ async function saveAnalyzedDraft() {
   savingDraft.value = true
   urlError.value = ''
   try {
-    const saved = await importRecipeUrl(draft.value.sourceUrl)
+    const saved = await importRecipeUrl(draft.value.sourceUrl, {
+      keepOriginalServings: keepOriginalServings.value,
+    })
     await queryClient.invalidateQueries({ queryKey: queryKeys.recipesAll })
     toast.success(`« ${saved.title} » ajoutée à votre bibliothèque.`)
     await router.push(`/recettes/${saved.id}`)
@@ -148,7 +181,9 @@ async function importFromModal() {
   modalSaving.value = true
   modalError.value = ''
   try {
-    const saved = await importRecipeUrl(targetUrl)
+    const saved = await importRecipeUrl(targetUrl, {
+      keepOriginalServings: keepOriginalServings.value,
+    })
     await queryClient.invalidateQueries({ queryKey: queryKeys.recipesAll })
     modalOpen.value = false
     toast.success(`« ${saved.title} » ajoutée à votre bibliothèque.`)
@@ -354,7 +389,31 @@ async function importFromCatalog(item: ExternalCatalogItem) {
             </div>
           </header>
 
-          <RecipeDraftContent :draft="draft" />
+          <div
+            v-if="draft.servings && draft.servings !== defaultServings"
+            class="import-servings-banner"
+          >
+            <span>
+              {{
+                keepOriginalServings
+                  ? `Quantités d’origine conservées (${draft.servings} pers.)`
+                  : `Quantités adaptées automatiquement de ${draft.servings} à ${defaultServings} pers. (foyer)`
+              }}
+            </span>
+            <button
+              type="button"
+              class="import-servings-banner__btn"
+              @click="keepOriginalServings = !keepOriginalServings"
+            >
+              {{
+                keepOriginalServings
+                  ? `Adapter pour ${defaultServings} pers.`
+                  : `Garder ${draft.servings} pers.`
+              }}
+            </button>
+          </div>
+
+          <RecipeDraftContent v-if="displayedDraft" :draft="displayedDraft" />
         </article>
       </TabsContent>
     </TabsRoot>
@@ -369,7 +428,32 @@ async function importFromCatalog(item: ExternalCatalogItem) {
         Récupération de la fiche complète (ingrédients et étapes)…
       </div>
       <div v-else-if="modalError" class="import-error" role="alert">Erreur : {{ modalError }}</div>
-      <RecipeDraftContent v-else-if="modalDraft" :draft="modalDraft" />
+      <template v-else-if="modalDraft && displayedModalDraft">
+        <div
+          v-if="modalDraft.servings && modalDraft.servings !== defaultServings"
+          class="import-servings-banner"
+        >
+          <span>
+            {{
+              keepOriginalServings
+                ? `Quantités d’origine conservées (${modalDraft.servings} pers.)`
+                : `Quantités adaptées de ${modalDraft.servings} à ${defaultServings} pers. (foyer)`
+            }}
+          </span>
+          <button
+            type="button"
+            class="import-servings-banner__btn"
+            @click="keepOriginalServings = !keepOriginalServings"
+          >
+            {{
+              keepOriginalServings
+                ? `Adapter pour ${defaultServings} pers.`
+                : `Garder ${modalDraft.servings} pers.`
+            }}
+          </button>
+        </div>
+        <RecipeDraftContent :draft="displayedModalDraft" />
+      </template>
 
       <template #footer>
         <a
@@ -522,6 +606,32 @@ async function importFromCatalog(item: ExternalCatalogItem) {
   text-decoration: underline;
   text-decoration-color: var(--q-terracotta);
   text-underline-offset: 0.2em;
+}
+
+.import-servings-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--q-space-2);
+  padding: var(--q-space-2) var(--q-space-3);
+  border-radius: var(--q-radius-control);
+  background: var(--q-shoot);
+  border: 1px solid var(--q-leaf);
+  color: var(--q-forest);
+  font-size: var(--q-type-body-small);
+  font-weight: 600;
+}
+
+.import-servings-banner__btn {
+  padding: 0.25rem 0.65rem;
+  border-radius: var(--q-radius-pill);
+  border: 1px solid var(--q-forest);
+  background: var(--q-peach);
+  color: var(--q-forest);
+  font-size: var(--q-type-metadata);
+  font-weight: 700;
+  cursor: pointer;
 }
 .import-external-link:hover {
   color: var(--q-leaf);

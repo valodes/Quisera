@@ -11,6 +11,7 @@ import Button from '@/components/ui/Button.vue'
 import TextInput from '@/components/ui/TextInput.vue'
 import { queryClient, queryKeys } from '@/lib/query'
 import { getRecipe, saveRecipe } from '@/recipes/api'
+import { useHouseholdDefaultServings } from '@/recipes/useRecipeServings'
 import '@/styles/recipes.css'
 
 type KeyedIngredient = RecipeWriteInput['ingredients'][number] & { _uid: string }
@@ -32,6 +33,7 @@ const recipeId = computed(() =>
     : null,
 )
 const editing = computed(() => recipeId.value !== null)
+const defaultServings = useHouseholdDefaultServings()
 const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
@@ -42,6 +44,7 @@ const draft = reactive<{
   title: string
   description: string | null
   totalMinutes: number | null
+  servings: number | null
   difficulty: RecipeWriteInput['difficulty']
   category: string | null
   tags: string[]
@@ -51,6 +54,7 @@ const draft = reactive<{
   title: '',
   description: null,
   totalMinutes: null,
+  servings: defaultServings.value,
   difficulty: null,
   category: null,
   tags: [],
@@ -66,6 +70,7 @@ function resetDraft() {
     title: '',
     description: null,
     totalMinutes: null,
+    servings: defaultServings.value,
     difficulty: null,
     category: null,
     tags: [],
@@ -73,6 +78,12 @@ function resetDraft() {
     steps: [{ _uid: nextUid(), instructions: '' }],
   })
 }
+
+watch(defaultServings, (next) => {
+  if (!editing.value && draft.servings === null) {
+    draft.servings = next
+  }
+})
 
 watch(
   recipeId,
@@ -92,6 +103,7 @@ watch(
         title: recipe.title,
         description: recipe.description,
         totalMinutes: recipe.totalMinutes,
+        servings: recipe.servings,
         difficulty: recipe.difficulty as RecipeWriteInput['difficulty'],
         category: recipe.category,
         tags: recipe.tags,
@@ -129,6 +141,7 @@ async function submit() {
     title: draft.title,
     description: draft.description?.trim() || null,
     totalMinutes: draft.totalMinutes || null,
+    servings: draft.servings || null,
     difficulty: draft.difficulty,
     category: draft.category?.trim() || null,
     tags: draft.tags,
@@ -201,6 +214,21 @@ async function submit() {
             max="1440"
             @input="
               draft.totalMinutes = ($event.target as HTMLInputElement).value
+                ? Number(($event.target as HTMLInputElement).value)
+                : null
+            "
+          />
+        </div>
+        <div class="recipe-form__field">
+          <label for="recipe-servings">Portions (personnes)</label
+          ><input
+            id="recipe-servings"
+            :value="draft.servings ?? ''"
+            type="number"
+            min="1"
+            max="24"
+            @input="
+              draft.servings = ($event.target as HTMLInputElement).value
                 ? Number(($event.target as HTMLInputElement).value)
                 : null
             "

@@ -21,6 +21,8 @@ import { ProgressIndicator, ProgressRoot } from 'reka-ui'
 import { computed, defineAsyncComponent, ref, shallowRef, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import Button from '@/components/ui/Button.vue'
+import ServingsStepper from '@/components/recipes/ServingsStepper.vue'
+import { useRecipeServings } from '@/recipes/useRecipeServings'
 import {
   useCookingSession,
   type CookingIngredient,
@@ -239,6 +241,7 @@ const routeRequestedRecipe = computed<CookingRecipe | null>(() => {
       imageUrl: r.imageUrl ?? r.thumbnailUrl,
       sourceLabel: r.source === 'house' ? 'Recette maison' : 'Quitoque',
       totalMinutes: r.totalMinutes,
+      servings: r.servings,
       prepMinutes: prep,
       cookMinutes: cook,
       ingredients: r.ingredients.map((item) => ({
@@ -266,6 +269,7 @@ const routeRequestedRecipe = computed<CookingRecipe | null>(() => {
       imageUrl: sel.photoUrl ?? sel.photoThumbnailUrl,
       sourceLabel: 'Quitoque',
       totalMinutes: sel.totalMinutes,
+      servings: sel.servings,
       prepMinutes: prep,
       cookMinutes: cook,
       ingredients,
@@ -347,6 +351,12 @@ const checkedCount = computed(() => {
   if (!recipe) return 0
   return recipe.ingredients.filter((_, index) => isIngredientChecked(index)).length
 })
+
+const cookingServingsCtrl = useRecipeServings(
+  computed(() => activeRecipe.value?.servings ?? null),
+  computed(() => activeRecipe.value?.ingredients ?? []),
+)
+const displayedCookingIngredients = computed(() => cookingServingsCtrl.scaledIngredients.value)
 
 function launchStepTimer(label: string, minutes: number) {
   startTimer(label, minutes, activeRecipe.value?.key ?? null)
@@ -649,7 +659,7 @@ watch(
         <div v-else class="flex-deck-ingredients">
           <ul class="cooking-ingredients">
             <li
-              v-for="(item, index) in activeRecipe.ingredients"
+              v-for="(item, index) in displayedCookingIngredients"
               :key="`flex-ing-${item.name}-${index}`"
               class="cooking-ingredient"
               :class="{ 'is-checked': isIngredientChecked(index) }"
@@ -813,14 +823,24 @@ watch(
           <div class="cooking-panel">
             <div class="cooking-panel__head">
               <h3>Ingrédients</h3>
+              <ServingsStepper
+                v-if="cookingServingsCtrl.canScale.value"
+                :servings="cookingServingsCtrl.displayServings.value"
+                :source-servings="activeRecipe.servings"
+                :can-scale="cookingServingsCtrl.canScale.value"
+                :is-scaled="cookingServingsCtrl.isScaled.value"
+                @increment="cookingServingsCtrl.increment"
+                @decrement="cookingServingsCtrl.decrement"
+                @reset="cookingServingsCtrl.reset"
+              />
               <span class="cooking-counter">
-                {{ checkedCount }} / {{ activeRecipe.ingredients.length }} prêts
+                {{ checkedCount }} / {{ displayedCookingIngredients.length }} prêts
               </span>
             </div>
 
-            <ul v-if="activeRecipe.ingredients.length" class="cooking-ingredients">
+            <ul v-if="displayedCookingIngredients.length" class="cooking-ingredients">
               <li
-                v-for="(item, index) in activeRecipe.ingredients"
+                v-for="(item, index) in displayedCookingIngredients"
                 :key="`${item.name}-${index}`"
                 class="cooking-ingredient"
                 :class="{ 'is-checked': isIngredientChecked(index) }"
@@ -984,7 +1004,7 @@ watch(
               </div>
               <ul v-if="activeRecipe.ingredients.length" class="cooking-ingredients">
                 <li
-                  v-for="(item, index) in activeRecipe.ingredients"
+                  v-for="(item, index) in displayedCookingIngredients"
                   :key="`side-${item.name}-${index}`"
                   class="cooking-ingredient"
                   :class="{ 'is-checked': isIngredientChecked(index) }"

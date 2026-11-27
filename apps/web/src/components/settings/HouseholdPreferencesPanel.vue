@@ -1,5 +1,15 @@
 <script setup lang="ts">
-import { Ban, CalendarCheck2, Check, Clock, Flame, Leaf, RotateCcw, Sparkles } from '@lucide/vue'
+import {
+  Ban,
+  CalendarCheck2,
+  Check,
+  Clock,
+  Flame,
+  Leaf,
+  RotateCcw,
+  Sparkles,
+  Users,
+} from '@lucide/vue'
 import {
   defaultHouseholdPlanningPreferences,
   type CalorieBalance,
@@ -79,11 +89,13 @@ const prefs = ref<HouseholdPlanningPreferences>({
   longRecipeDays: [...defaultHouseholdPlanningPreferences.longRecipeDays],
 })
 
+const defaultServingsInput = ref('2')
 const freshDaysInput = ref('3')
 const weekdayMaxInput = ref('30')
 const maxCaloriesInput = ref('')
 
 function syncInputsFromPrefs(value: HouseholdPlanningPreferences) {
+  defaultServingsInput.value = String(value.defaultServings ?? 2)
   freshDaysInput.value =
     value.freshProductsMaxDays === null ? '' : String(value.freshProductsMaxDays)
   weekdayMaxInput.value =
@@ -151,10 +163,21 @@ function parseOptionalInt(raw: string, min: number, max: number, label: string):
 
 async function submit() {
   saveError.value = ''
+  let defaultServings: number
   let freshProductsMaxDays: number | null
   let weekdayMaxPrepMinutes: number | null
   let maxDailyCalories: number | null
   try {
+    const parsedServings = parseOptionalInt(
+      defaultServingsInput.value,
+      1,
+      24,
+      'Le nombre de portions par défaut',
+    )
+    if (parsedServings === null) {
+      throw new Error('Le nombre de portions par défaut doit être compris entre 1 et 24.')
+    }
+    defaultServings = parsedServings
     freshProductsMaxDays = parseOptionalInt(
       freshDaysInput.value,
       1,
@@ -182,6 +205,7 @@ async function submit() {
   try {
     const saved = await updateHouseholdPreferences({
       ...prefs.value,
+      defaultServings,
       freshProductsMaxDays,
       weekdayMaxPrepMinutes,
       maxDailyCalories,
@@ -207,6 +231,32 @@ async function submit() {
     <p v-else-if="loadError" class="prefs__alert" role="alert">Erreur : {{ loadError }}</p>
 
     <form v-else class="prefs__form" @submit.prevent="submit">
+      <section class="prefs-card">
+        <div class="prefs-card__head">
+          <div>
+            <h3>
+              <Users :size="18" aria-hidden="true" />
+              Portions par défaut du foyer
+            </h3>
+            <p>
+              Les recettes importées et affichées s’ajustent automatiquement à ce nombre de
+              personnes, indépendamment du nombre de comptes du foyer.
+            </p>
+          </div>
+          <label class="prefs-inline-field" for="pref-default-servings">
+            <span>Personnes</span>
+            <input
+              id="pref-default-servings"
+              v-model="defaultServingsInput"
+              type="number"
+              min="1"
+              max="24"
+              inputmode="numeric"
+            />
+          </label>
+        </div>
+      </section>
+
       <section class="prefs-card">
         <div class="prefs-card__head">
           <div>

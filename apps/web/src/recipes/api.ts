@@ -114,10 +114,14 @@ export function previewRecipeUrl(url: string) {
   })
 }
 
-export function importRecipeUrl(url: string) {
+export function importRecipeUrl(url: string, options?: { keepOriginalServings?: boolean }) {
   return request<RecipeDetail>('/import-url', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url, save: true }),
+    body: JSON.stringify({
+      url,
+      save: true,
+      keepOriginalServings: options?.keepOriginalServings ?? false,
+    }),
   })
 }

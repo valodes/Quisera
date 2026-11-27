@@ -4,11 +4,13 @@ import { computed, defineAsyncComponent, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, ChefHat, Clock3, Heart, Pencil, Star, Trash2 } from '@lucide/vue'
 import NutritionPanel from '@/components/recipes/NutritionPanel.vue'
+import ServingsStepper from '@/components/recipes/ServingsStepper.vue'
 import Button from '@/components/ui/Button.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import { queryClient, queryKeys } from '@/lib/query'
 import { deleteRecipe, getRecipe, setFavorite } from '@/recipes/api'
 import { formatRecipeInstructions } from '@/recipes/instructions'
+import { useRecipeServings } from '@/recipes/useRecipeServings'
 import '@/styles/recipes.css'
 
 const ModalDialog = defineAsyncComponent(() => import('@/components/ui/ModalDialog.vue'))
@@ -31,6 +33,11 @@ const {
   queryFn: () => getRecipe(recipeId.value),
   enabled: computed(() => recipeId.value.length > 0),
 })
+
+const servingsCtrl = useRecipeServings(
+  computed(() => recipe.value?.servings ?? null),
+  computed(() => recipe.value?.ingredients ?? []),
+)
 
 const error = computed(() =>
   actionError.value
@@ -190,9 +197,32 @@ async function confirmRemoveRecipe() {
       <p v-if="error" class="recipe-state--error" role="alert">{{ error }}</p>
       <div class="recipe-detail__columns">
         <section>
-          <h3>Ingrédients</h3>
-          <ul v-if="recipe.ingredients.length">
-            <li v-for="(item, index) in recipe.ingredients" :key="`${item.name}-${index}`">
+          <div
+            style="
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              gap: 0.75rem;
+              flex-wrap: wrap;
+            "
+          >
+            <h3>Ingrédients</h3>
+            <ServingsStepper
+              v-if="recipe.ingredients.length"
+              :servings="servingsCtrl.displayServings.value"
+              :source-servings="recipe.servings"
+              :can-scale="servingsCtrl.canScale.value"
+              :is-scaled="servingsCtrl.isScaled.value"
+              @increment="servingsCtrl.increment"
+              @decrement="servingsCtrl.decrement"
+              @reset="servingsCtrl.reset"
+            />
+          </div>
+          <ul v-if="servingsCtrl.scaledIngredients.value.length">
+            <li
+              v-for="(item, index) in servingsCtrl.scaledIngredients.value"
+              :key="`${item.name}-${index}`"
+            >
               <strong v-if="item.quantity"
                 >{{ item.quantity }}<span v-if="item.unit"> {{ item.unit }}</span></strong
               >

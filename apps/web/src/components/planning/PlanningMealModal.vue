@@ -7,12 +7,14 @@ import { useQuery } from '@tanstack/vue-query'
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import NutritionPanel from '@/components/recipes/NutritionPanel.vue'
+import ServingsStepper from '@/components/recipes/ServingsStepper.vue'
 import Button from '@/components/ui/Button.vue'
 import ModalDialog from '@/components/ui/ModalDialog.vue'
 import ScoreBadge from '@/components/ui/ScoreBadge.vue'
 import { queryKeys } from '@/lib/query'
 import { getRecipe } from '@/recipes/api'
 import { parseStructuredStep } from '@/recipes/instructions'
+import { useRecipeServings } from '@/recipes/useRecipeServings'
 
 type SlotMeal = NonNullable<PlanningRange['days'][number]['lunch']['meal']>
 
@@ -82,6 +84,11 @@ const homeStructuredSteps = computed(() =>
   (homeRecipe.value?.steps ?? []).map((step, index) =>
     parseStructuredStep(step.instructions, index + 1),
   ),
+)
+
+const homeServingsCtrl = useRecipeServings(
+  computed(() => homeRecipe.value?.servings ?? null),
+  computed(() => homeRecipe.value?.ingredients ?? []),
 )
 
 function difficultyLabel(value: string | null | undefined) {
@@ -245,9 +252,35 @@ function difficultyLabel(value: string | null | undefined) {
 
           <div class="planning-modal__sheet-cols">
             <div class="planning-modal__sheet-col">
-              <h3>Ingrédients</h3>
-              <ul v-if="homeRecipe.ingredients.length" class="planning-modal__sheet-ing-list">
-                <li v-for="(item, idx) in homeRecipe.ingredients" :key="`${idx}-${item.name}`">
+              <div
+                style="
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                  gap: 0.5rem;
+                  flex-wrap: wrap;
+                "
+              >
+                <h3>Ingrédients</h3>
+                <ServingsStepper
+                  v-if="homeRecipe.ingredients.length"
+                  :servings="homeServingsCtrl.displayServings.value"
+                  :source-servings="homeRecipe.servings"
+                  :can-scale="homeServingsCtrl.canScale.value"
+                  :is-scaled="homeServingsCtrl.isScaled.value"
+                  @increment="homeServingsCtrl.increment"
+                  @decrement="homeServingsCtrl.decrement"
+                  @reset="homeServingsCtrl.reset"
+                />
+              </div>
+              <ul
+                v-if="homeServingsCtrl.scaledIngredients.value.length"
+                class="planning-modal__sheet-ing-list"
+              >
+                <li
+                  v-for="(item, idx) in homeServingsCtrl.scaledIngredients.value"
+                  :key="`${idx}-${item.name}`"
+                >
                   <strong v-if="item.quantity"
                     >{{ item.quantity }}<span v-if="item.unit"> {{ item.unit }}</span>
                   </strong>

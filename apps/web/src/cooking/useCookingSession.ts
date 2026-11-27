@@ -17,6 +17,7 @@ export type CookingRecipe = {
   imageUrl: string | null
   sourceLabel: string
   totalMinutes: number | null
+  servings?: number | null
   prepMinutes: number | null
   cookMinutes: number | null
   ingredients: CookingIngredient[]
