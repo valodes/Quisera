@@ -99,6 +99,12 @@ const router = createRouter({
       meta: { title: 'Cuisiner', requiresAuth: true },
     },
     {
+      path: '/frigo',
+      name: 'fridge',
+      component: () => import('@/views/FrigoView.vue'),
+      meta: { title: 'Frigo', requiresAuth: true },
+    },
+    {
       path: '/invitation/:token',
       name: 'accept-invitation',
       component: () => import('@/views/AcceptInvitationView.vue'),
@@ -112,6 +118,7 @@ const router = createRouter({
           item.name !== 'planning' &&
           item.name !== 'planification' &&
           item.name !== 'cooking' &&
+          item.name !== 'fridge' &&
           item.name !== 'settings',
       )
       .map((item) => ({

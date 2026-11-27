@@ -29,4 +29,7 @@ export const queryKeys = {
   upcomingBoxes: ['planification', 'boxes'] as const,
   weekCatalog: (start: string, end: string, section: string) =>
     ['planification', 'catalog', start, end, section] as const,
+  fridgeAll: ['fridge'] as const,
+  fridgeItems: ['fridge', 'items'] as const,
+  fridgeMatches: (includeStaples = false) => ['fridge', 'matches', { includeStaples }] as const,
 }

@@ -1,4 +1,12 @@
-import { BookOpen, CalendarDays, ChefHat, House, Settings, ShoppingBasket } from '@lucide/vue'
+import {
+  BookOpen,
+  CalendarDays,
+  ChefHat,
+  House,
+  Refrigerator,
+  Settings,
+  ShoppingBasket,
+} from '@lucide/vue'
 import type { Component } from 'vue'
 
 export type NavigationItem = {
@@ -42,6 +50,14 @@ export const navigationItems = [
     label: 'Recettes',
     description: 'Parcourir et retrouver les recettes du foyer.',
     icon: BookOpen,
+    mobilePrimary: true,
+  },
+  {
+    name: 'fridge',
+    path: '/frigo',
+    label: 'Frigo',
+    description: 'Gérer le contenu du frigo, du placard et du congélateur.',
+    icon: Refrigerator,
     mobilePrimary: true,
   },
   {
