@@ -5,6 +5,7 @@ export type SlotPreferenceKey = `${0 | 1 | 2 | 3 | 4 | 5 | 6}:${MealPeriod}`
 export type CalorieBalance = 'neutral' | 'heavier-lunch' | 'heavier-dinner'
 
 export type HouseholdPlanningPreferences = {
+  defaultServings: number
   freshProductsMaxDays: number | null
   requiredSlots: SlotPreferenceKey[]
   excludedSlots: SlotPreferenceKey[]
@@ -18,6 +19,7 @@ export type HouseholdPlanningPreferences = {
 }
 
 export const defaultHouseholdPlanningPreferences: HouseholdPlanningPreferences = {
+  defaultServings: 2,
   freshProductsMaxDays: 3,
   requiredSlots: ['1:lunch', '2:lunch', '3:lunch', '4:lunch', '5:lunch'],
   excludedSlots: [],

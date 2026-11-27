@@ -22,6 +22,10 @@
     "./recipes": {
       "types": "./dist/recipes.d.ts",
       "import": "./dist/recipes.js"
+    },
+    "./servings": {
+      "types": "./dist/servings.d.ts",
+      "import": "./dist/servings.js"
     }
   },
   "scripts": {

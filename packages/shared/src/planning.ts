@@ -97,6 +97,7 @@ export const calorieBalanceSchema = z.enum(['neutral', 'heavier-lunch', 'heavier
 
 export const householdPlanningPreferencesSchema = z
   .object({
+    defaultServings: z.number().int().min(1).max(24).optional(),
     freshProductsMaxDays: z.number().int().min(1).max(7).nullable(),
     requiredSlots: z.array(slotPreferenceKeySchema).max(14),
     excludedSlots: z.array(slotPreferenceKeySchema).max(14),
