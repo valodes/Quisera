@@ -12,6 +12,7 @@ import { createQuitoqueClient } from './quitoque/client.js'
 import { createPlanningRoutes, type QuitoquePlanningClient } from './planning/routes.js'
 import { createProfileRoutes } from './profile/routes.js'
 import { createHouseholdRoutes } from './household/routes.js'
+import { createFridgeRoutes } from './fridge/routes.js'
 import { createQuitoqueBoxClient } from './quitoque/box-client.js'
 import { createPlanificationRoutes } from './planification/routes.js'
 
@@ -144,6 +145,8 @@ export function createApp({ auth, database, environment, quitoquePlanningClient 
   app.route('/api/profile', createProfileRoutes(database.client, auth))
 
   app.route('/api/household', createHouseholdRoutes(database.client, auth, environment.APP_URL))
+
+  app.route('/api/fridge', createFridgeRoutes(database.client, auth))
 
   app.route(
     '/api/planification',
